@@ -39,7 +39,7 @@ raw audio
 
 - `inbox/`: unprocessed recordings or transcripts
 - `processed/`: archived source files
-- `daily/`: structured individual voice notes
+- `daily/`: structured individual notes
 - `reviews/`: weekly/monthly reviews
 - `topics/`: long-term topic notes
 - `docs/`: setup notes

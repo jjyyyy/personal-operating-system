@@ -1,6 +1,6 @@
 # Personal Operating System
 
-A local workflow for turning captured thoughts into an Obsidian-friendly LLM wiki:
+A personal system for capturing thoughts, extracting actions, and building durable knowledge into an Obsidian-friendly wiki:
 
 1. Export audio from a recording app, or provide an existing transcript.
 2. Transcribe audio with OpenAI speech-to-text.
@@ -25,7 +25,7 @@ voice-notes project root
 ├── inbox/          # unprocessed audio/transcripts
 ├── processed/      # archived source files
 ├── discarded/      # cancelled inbox files
-├── daily/          # individual voice notes
+├── daily/          # individual notes
 ├── topics/         # long-term topic notes
 ├── reviews/        # weekly/monthly reviews
 ├── docs/           # setup notes, including Action Button flow

@@ -11,14 +11,14 @@ You are my personal knowledge assistant.
 
 ## Goal
 
-Turn scattered captures into a durable Obsidian-style LLM wiki. Do not stop at temporary RAG-style answers. Help promote repeated content into long-term topic notes.
+Turn scattered captures into a durable Obsidian-style knowledge system. Do not stop at temporary RAG-style answers. Help promote repeated content into long-term topic notes.
 
 ## Knowledge Layers
 
 - `inbox/`: unprocessed audio or transcript files.
 - `processed/`: archived immutable source files after ingest.
 - `discarded/`: cancelled or accidental recordings that should not be processed.
-- `daily/`: structured individual voice notes.
+- `daily/`: structured individual notes.
 - `reviews/`: weekly, monthly, and lint reports.
 - `topics/`: long-term topic notes and durable memory.
 - `docs/action-button-flow.md`: setup for iPhone Action Button capture.

@@ -17,7 +17,7 @@ If you cannot answer with this marker, read `index.md` before proceeding.
 
 ## Goal
 
-Turn iPhone Voice Memos and transcripts into a durable Obsidian-style LLM wiki. Do not treat transcripts as the final artifact. Convert them into daily notes, then promote repeated ideas, actions, people, decisions, and long-term patterns into topic notes.
+Turn captures and transcripts into a durable Obsidian-style knowledge system. Do not treat transcripts as the final artifact. Convert them into daily notes, then promote repeated ideas, actions, people, decisions, and long-term patterns into topic notes.
 
 ## Read Order
 
@@ -28,7 +28,7 @@ When answering or modifying the vault, read in this order:
 3. `00-home.md`: human-facing vault map.
 4. Relevant `topics/` files: durable topic memory.
 5. Recent `reviews/` files: weekly/monthly synthesis.
-6. Relevant `daily/` files: individual voice notes.
+6. Relevant `daily/` files: individual notes.
 7. `Raw Transcript` only when details are needed.
 
 Use `catalog.md` only when broad discovery is needed. It is intentionally separate from this file so `index.md` stays small enough for simple queries.
@@ -38,7 +38,7 @@ Use `catalog.md` only when broad discovery is needed. It is intentionally separa
 - `inbox/`: unprocessed audio files or transcripts.
 - `processed/`: archived source files after ingest.
 - `discarded/`: accidental inbox recordings moved out of processing.
-- `daily/`: structured Markdown notes for individual voice notes.
+- `daily/`: structured Markdown notes for individual notes.
 - `reviews/`: weekly/monthly reviews.
 - `topics/`: long-term topic notes. Prefer updating these over creating many new files.
 - `templates/`: Markdown templates.

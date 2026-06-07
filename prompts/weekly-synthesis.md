@@ -1,6 +1,6 @@
 # Prompt: Weekly Synthesis
 
-Read all `daily/` voice notes for the week and create one weekly review.
+Read all `daily/` notes for the week and create one weekly review.
 
 Focus:
 

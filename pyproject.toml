@@ -1,7 +1,7 @@
 [project]
 name = "personal-operating-system"
 version = "0.1.0"
-description = "Local personal operating system workflow for an Obsidian-style LLM wiki."
+description = "A personal system for capturing thoughts, extracting actions, and building durable knowledge into an Obsidian-style wiki."
 requires-python = ">=3.11"
 dependencies = [
   "certifi>=2025.11.12",

@@ -1,4 +1,4 @@
-Read all voice notes from this week:
+Read all notes from this week:
 
 1. Group by topic.
 2. Find repeated themes.
