@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jazzzz.voice-notes.watch</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/jazzzz/Projects/voice-notes</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>python3</string>
+    <string>/Users/jazzzz/Projects/voice-notes/src/voice_notes_ai.py</string>
+    <string>watch-inbox</string>
+    <string>--interval</string>
+    <string>30</string>
+    <string>--settle-seconds</string>
+    <string>20</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/jazzzz/Projects/voice-notes/logs/watch-inbox.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/jazzzz/Projects/voice-notes/logs/watch-inbox.err.log</string>
+</dict>
+</plist>

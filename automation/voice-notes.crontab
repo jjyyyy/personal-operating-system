@@ -1,0 +1,1 @@
+*/5 * * * * cd /Users/jazzzz/Projects/voice-notes && /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 src/voice_notes_ai.py process-inbox --settle-seconds 60 >> logs/process-inbox-cron.log 2>&1

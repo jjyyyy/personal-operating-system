@@ -1,0 +1,35 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.openclaw/
+logs/*.log
+
+# Local editor and agent state
+.obsidian/
+.claudian/
+
+# Private source media
+inbox/*
+!inbox/.gitkeep
+processed/*
+!processed/.gitkeep
+discarded/*
+!discarded/.gitkeep
+
+# Generated/private knowledge content
+daily/*
+!daily/.gitkeep
+topics/*
+!topics/.gitkeep
+reviews/*
+!reviews/.gitkeep
+index.json
+catalog.md
+log.md
+
+# Personal agent profile
+USER.md
+SOUL.md
+IDENTITY.md
