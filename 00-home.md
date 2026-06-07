@@ -13,6 +13,7 @@ The goal is not to pile up recordings in a searchable archive. The goal is to tu
 - [[docs/action-button-flow|Action Button Flow]]
 - [[docs/openclaw-integration|OpenClaw Integration]]
 - [[docs/proposals/2026-06-07-ai-annotations-and-agent-briefing|AI Annotations & Agent Briefing Proposal]]
+- [[docs/proposals/2026-06-07-unified-inbox-reminders-xhs|Unified Inbox, Reminders & XHS Proposal]]
 - [[01-methodology|Methodology]]
 - [[02-operating-system|Operating System]]
 - [[topics/career|Career]]

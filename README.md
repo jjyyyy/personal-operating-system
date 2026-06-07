@@ -134,6 +134,8 @@ The script will:
 
 - transcribe audio, or read `.txt` / `.md` transcripts directly
 - generate structured note content
+- add zero to three contextual AI comments only when a real knowledge gap,
+  established concept, ambiguity, or verification need warrants one
 - write Markdown into `daily/`
 - update `index.json`
 - update `catalog.md`
@@ -148,6 +150,14 @@ python3 src/voice_notes_ai.py test-notification
 ```
 
 Set `VOICE_NOTES_NOTIFICATIONS=0` in `.env` to disable notifications.
+
+AI comments use the Obsidian `ai-comment` callout style. Their font can be
+adjusted in `.obsidian/snippets/ai-comments.css` through:
+
+```css
+--ai-comment-font-family
+--ai-comment-font-size
+```
 
 ### Action Button Capture
 

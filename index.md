@@ -46,6 +46,7 @@ Use `catalog.md` only when broad discovery is needed. It is intentionally separa
 - `docs/action-button-flow.md`: Action Button to parsed note setup.
 - `docs/openclaw-integration.md`: OpenClaw agent connection and security notes.
 - `docs/proposals/`: detailed proposals that are not yet implemented.
+- `docs/proposals/2026-06-07-unified-inbox-reminders-xhs.md`: design-only plan for unified voice, XHS, bot, reminders, Calendar, and embeddings.
 - `automation/`: optional LaunchAgent template for `watch-inbox`.
 - `src/voice_notes_ai.py`: local processing script.
 - `index.json`: machine-readable daily-note index.

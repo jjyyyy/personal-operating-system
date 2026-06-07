@@ -11,7 +11,11 @@ Requirements:
 5. Extract people.
 6. Suggest suitable topic-note links.
 7. Preserve the raw transcript.
-8. Do not over-explain.
+8. Optionally add 0-3 AI comments only for a clear knowledge gap, a
+   well-established concept/viewpoint, an important ambiguity, a claim needing
+   verification.
+9. Most ordinary notes should have no AI comments. Do not force one.
+10. Do not over-explain.
 
 Output format:
 
@@ -27,6 +31,10 @@ title:
 # Title
 
 ## Summary
+
+## AI Comments
+
+Omit this section when no high-value comment is warranted.
 
 ## Topics
 

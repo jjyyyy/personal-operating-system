@@ -2,6 +2,12 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
 .DS_Store
 .openclaw/
 logs/*.log

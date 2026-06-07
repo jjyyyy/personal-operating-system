@@ -1,8 +1,18 @@
 # Proposal: Contextual AI Annotations And Agent Briefing
 
-Status: Proposal only
+Status: Annotation pipeline implemented; Agent Briefing remains proposal only
 Date: 2026-06-07
 Source: [[daily/2026-06-07-reflecting-on-engineer-roles-and-ai-note-features-20260607-011356|Reflecting on Engineer Roles and AI Note Features]]
+
+## Implementation Note
+
+Implemented on 2026-06-07:
+
+- annotations are optional and generated in the structured ingest response;
+- zero annotations is the normal outcome for ordinary notes;
+- comments render as Obsidian `ai-comment` callouts;
+- the latest source note contains two example comments;
+- Agent Briefing has not been implemented.
 
 ## Executive Summary
 

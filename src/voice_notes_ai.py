@@ -250,7 +250,8 @@ def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
         f"""
         You are organizing a user's personal voice note into a clean knowledge note.
         Return valid JSON with exactly these keys:
-        date, title, source, topics, summary, action_items, people, raw_transcript
+        date, title, source, topics, summary, action_items, people, annotations,
+        raw_transcript
 
         Rules:
         - date must stay "{note_date}"
@@ -260,7 +261,25 @@ def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
         - summary should be 2-5 bullet-worthy sentences combined into one paragraph
         - action_items should be a JSON array
         - people should be a JSON array
+        - annotations should be a JSON array with 0-3 items
         - raw_transcript should preserve the transcript with light cleanup only
+
+        Annotation policy:
+        - Returning an empty annotations array is normal and preferred for most notes.
+        - Add an annotation only when it clearly helps with a likely knowledge gap,
+          a well-established concept or viewpoint, an important ambiguity, or a
+          claim that needs verification.
+        - Do not add generic encouragement, repeat the summary, comment on obvious
+          statements, or manufacture a comment just because the field exists.
+        - Match the transcript's primary language.
+        - Keep each annotation concise and useful.
+        - anchor_quote should be a short exact or lightly cleaned phrase from the
+          transcript that the annotation comments on.
+        - type must be one of: concept, clarification, verification-needed,
+          counterpoint.
+        - basis must be one of: established-knowledge, model-inference,
+          needs-research.
+        - Never present changing or uncertain information as established knowledge.
 
         Transcript:
         {transcript}
@@ -288,6 +307,48 @@ def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
                             "summary": {"type": "string"},
                             "action_items": {"type": "array", "items": {"type": "string"}},
                             "people": {"type": "array", "items": {"type": "string"}},
+                            "annotations": {
+                                "type": "array",
+                                "maxItems": 3,
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "title": {"type": "string"},
+                                        "type": {
+                                            "type": "string",
+                                            "enum": [
+                                                "concept",
+                                                "clarification",
+                                                "verification-needed",
+                                                "counterpoint",
+                                            ],
+                                        },
+                                        "anchor_quote": {"type": "string"},
+                                        "body": {"type": "string"},
+                                        "confidence": {
+                                            "type": "string",
+                                            "enum": ["low", "medium", "high"],
+                                        },
+                                        "basis": {
+                                            "type": "string",
+                                            "enum": [
+                                                "established-knowledge",
+                                                "model-inference",
+                                                "needs-research",
+                                            ],
+                                        },
+                                    },
+                                    "required": [
+                                        "title",
+                                        "type",
+                                        "anchor_quote",
+                                        "body",
+                                        "confidence",
+                                        "basis",
+                                    ],
+                                },
+                            },
                             "raw_transcript": {"type": "string"},
                         },
                         "required": [
@@ -298,6 +359,7 @@ def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
                             "summary",
                             "action_items",
                             "people",
+                            "annotations",
                             "raw_transcript",
                         ],
                     },
@@ -321,6 +383,7 @@ def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
         "summary",
         "action_items",
         "people",
+        "annotations",
         "raw_transcript",
     ]
     for key in required_keys:
@@ -328,6 +391,39 @@ def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
             raise SystemExit(f"Summary response missing key: {key}")
 
     return data
+
+
+def quote_callout_text(value: str) -> str:
+    return "\n".join(f"> {line}" if line else ">" for line in value.splitlines())
+
+
+def annotations_markdown(annotations: list[dict]) -> str:
+    if not annotations:
+        return ""
+
+    blocks = ["## AI Comments", ""]
+    for annotation in annotations[:3]:
+        annotation_type = annotation["type"].replace("-", " ").title()
+        title = annotation["title"].strip()
+        anchor_quote = annotation["anchor_quote"].strip()
+        body = annotation["body"].strip()
+        confidence = annotation["confidence"].strip().title()
+        basis = annotation["basis"].replace("-", " ").title()
+
+        blocks.append(f"> [!ai-comment]+ AI Comment · {annotation_type}")
+        blocks.append(f"> **{title}**")
+        if anchor_quote:
+            blocks.append(">")
+            blocks.append(f'> <span class="ai-comment-anchor">“{anchor_quote}”</span>')
+        if body:
+            blocks.append(">")
+            blocks.append(quote_callout_text(body))
+        blocks.append(">")
+        blocks.append(
+            f'> <span class="ai-comment-meta">Confidence: {confidence} · Basis: {basis}</span>'
+        )
+        blocks.append("")
+    return "\n".join(blocks).rstrip() + "\n\n"
 
 
 def note_markdown(note: dict) -> str:
@@ -347,6 +443,7 @@ def note_markdown(note: dict) -> str:
         f"# {note['title']}\n\n"
         f"## Summary\n\n"
         f"{note['summary']}\n\n"
+        f"{annotations_markdown(note.get('annotations', []))}"
         f"## Topics\n\n"
         f"{topics}\n\n"
         f"## Action Items\n\n"

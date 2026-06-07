@@ -41,6 +41,9 @@ Turn scattered voice notes into a durable Obsidian-style LLM wiki. Do not stop a
 - Never print or expose `.env`, API keys, OpenClaw tokens, or credentials.
 - Do not access or modify files outside this workspace unless the user explicitly requests it.
 - Do not send vault content to external channels unless the user explicitly requests delivery.
+- AI comments are optional. Add them only for a clear knowledge gap, established
+  concept/viewpoint, important ambiguity, or claim that needs verification.
+- Do not repeat the summary or force an AI comment into ordinary notes.
 - Keep 1-5 topics per voice note.
 - Prefer existing topic notes. Do not create a new file for every keyword.
 - Create or update a topic note only when content repeats, affects long-term decisions, represents an ongoing project/goal/risk, or contains reusable principles.
