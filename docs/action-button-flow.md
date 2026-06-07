@@ -138,7 +138,14 @@ Install it with:
 crontab automation/voice-notes.crontab
 ```
 
-It checks every five minutes and exits immediately when no ready files exist. Empty checks do not call OpenAI.
+It checks the inbox every five minutes and exits immediately when no ready files
+exist. Empty inbox checks do not call OpenAI.
+
+The same crontab also checks snippets once per day. Scheduled snippet checks are
+catch-up style: weekly targets the latest completed Monday-Sunday week, monthly
+targets the latest completed month, and both skip before calling OpenAI when the
+expected snippet file already exists. This is better for a laptop that may sleep
+through a single fixed weekly or monthly time.
 
 ### macOS iCloud Permission
 

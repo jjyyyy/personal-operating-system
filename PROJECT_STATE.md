@@ -45,8 +45,9 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
   `topics/ai-development.md`, `topics/career.md`, `topics/health.md`,
   `topics/ideas.md`, and `topics/system-design.md`.
 - Protected XHS media still needs a manual `--video-file`.
-- Cron may need macOS Full Disk Access for iCloud inbox folders; installing the
-  updated crontab from Codex hung, so install it manually in Terminal if needed.
+- Cron may need macOS Full Disk Access for iCloud inbox folders. Snippet cron is
+  intentionally daily catch-up because this is a laptop and may sleep through a
+  single weekly/monthly time.
 - Private generated vault outputs remain intentionally ignored by Git.
 
 ## Next Tasks

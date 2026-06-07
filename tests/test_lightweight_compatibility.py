@@ -252,6 +252,43 @@ class LightweightCompatibilityTests(unittest.TestCase):
             (voice_notes_ai.dt.date(2025, 1, 1), voice_notes_ai.dt.date(2025, 12, 31)),
         )
 
+    def test_scheduled_weekly_uses_latest_completed_week(self) -> None:
+        self.assertEqual(
+            voice_notes_ai.resolve_scheduled_snippet_range(
+                "weekly",
+                voice_notes_ai.dt.date(2026, 6, 8),
+            ),
+            (voice_notes_ai.dt.date(2026, 6, 1), voice_notes_ai.dt.date(2026, 6, 7)),
+        )
+        self.assertEqual(
+            voice_notes_ai.resolve_scheduled_snippet_range(
+                "weekly",
+                voice_notes_ai.dt.date(2026, 6, 7),
+            ),
+            (voice_notes_ai.dt.date(2026, 5, 25), voice_notes_ai.dt.date(2026, 5, 31)),
+        )
+
+    def test_scheduled_snippet_skips_existing_completed_week_without_api(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            snippet = root / "snippets" / "2026-06-01_to_2026-06-07_weekly_snippet.md"
+            snippet.parent.mkdir(parents=True)
+            snippet.write_text("# Existing\n", encoding="utf-8")
+            with (
+                self.patch_vault_paths(root),
+                patch.object(
+                    voice_notes_ai,
+                    "require_api_key",
+                    side_effect=AssertionError("should not call OpenAI"),
+                ),
+            ):
+                output = voice_notes_ai.scheduled_snippet(
+                    "weekly",
+                    today=voice_notes_ai.dt.date(2026, 6, 8),
+                )
+
+        self.assertEqual(output, snippet)
+
     def test_range_loader_keeps_personal_and_xhs_separate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

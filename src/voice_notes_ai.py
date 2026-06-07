@@ -1334,15 +1334,30 @@ def weekly_review(
     return period_review(date_from, date_to, "weekly", scope, query, force)
 
 
-def scheduled_snippet(period: str) -> Path:
+def resolve_scheduled_snippet_range(
+    period: str,
+    today: dt.date | None = None,
+) -> tuple[dt.date, dt.date]:
+    current = today or dt.date.today()
+    if period == "weekly":
+        current_week_start = current - dt.timedelta(days=current.weekday())
+        date_to = current_week_start - dt.timedelta(days=1)
+        date_from = date_to - dt.timedelta(days=6)
+        return date_from, date_to
+    if period == "monthly":
+        return resolve_review_range("monthly", None, None, current)
+    raise SystemExit(f"Unsupported scheduled snippet period: {period}")
+
+
+def scheduled_snippet(period: str, today: dt.date | None = None) -> Path:
     started = dt.datetime.now().isoformat(timespec="seconds")
     print(f"{period}-snippet start: {started}")
     try:
         if period == "weekly":
-            date_from, date_to = resolve_review_range("weekly", None, None)
+            date_from, date_to = resolve_scheduled_snippet_range(period, today)
             output_path = weekly_review(date_from, date_to, scope="personal")
         elif period == "monthly":
-            date_from, date_to = resolve_review_range("monthly", None, None)
+            date_from, date_to = resolve_scheduled_snippet_range(period, today)
             output_path = period_review(date_from, date_to, "monthly", scope="personal")
         else:
             raise SystemExit(f"Unsupported scheduled snippet period: {period}")

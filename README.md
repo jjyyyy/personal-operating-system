@@ -260,7 +260,12 @@ For scheduled processing, install:
 crontab automation/voice-notes.crontab
 ```
 
-See `docs/action-button-flow.md` for the macOS Full Disk Access step required when cron reads an iCloud inbox.
+The crontab runs snippet checks daily instead of relying on one exact weekly or
+monthly moment. `scheduled-snippet weekly` targets the latest completed week and
+skips if that snippet already exists; `scheduled-snippet monthly` does the same
+for the latest completed month. This makes laptop sleep less likely to lose a
+snippet run. See `docs/action-button-flow.md` for the macOS Full Disk Access
+step required when cron reads an iCloud inbox.
 
 ### 2. Create A Weekly Snippet
 
