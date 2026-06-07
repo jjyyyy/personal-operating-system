@@ -1,13 +1,13 @@
 # Personal Operating System
 
-A personal system for capturing thoughts, extracting actions, and building durable knowledge into an Obsidian-friendly wiki:
+A personal system for capturing thoughts, extracting actions, and building
+durable knowledge into an Obsidian-friendly wiki:
 
 1. Export audio from a recording app, or provide an existing transcript.
 2. Transcribe audio with OpenAI speech-to-text.
-3. Generate structured summaries with OpenAI.
-4. Write Obsidian-friendly Markdown into `daily/`.
-5. Keep `catalog.md` and `log.md` current.
-6. Create weekly reviews and promote durable content into `topics/`.
+3. Generate a structured daily note.
+4. Create weekly snippets.
+5. Promote repeated, durable material into `topics/`.
 
 The streamlined capture path is:
 
@@ -25,9 +25,11 @@ voice-notes project root
 ├── inbox/          # unprocessed audio/transcripts
 ├── processed/      # archived source files
 ├── discarded/      # cancelled inbox files
-├── daily/          # individual notes
+├── daily/          # personal voice notes and reflections
+├── xhs/            # imported XHS knowledge
 ├── topics/         # long-term topic notes
-├── reviews/        # weekly/monthly reviews
+├── snippets/       # weekly/monthly synthesis snippets
+├── reviews/        # lint and maintenance reports
 ├── docs/           # setup notes, including Action Button flow
 ├── automation/     # optional launchd template
 ├── catalog.md      # generated broad content catalog
@@ -136,12 +138,76 @@ The script will:
 - generate structured note content
 - add zero to three contextual AI comments only when a real knowledge gap,
   established concept, ambiguity, or verification need warrants one
-- write Markdown into `daily/`
+- write personal Markdown into `daily/` and XHS knowledge into `xhs/`
 - update `index.json`
 - update `catalog.md`
 - append to `log.md`
-- move the source file into `processed/`
+- move the source into `processed/voice/`, `processed/xhs/`, or `processed/bot/`
 - send a macOS notification after success or failure
+
+Empty inbox checks return before any OpenAI call.
+
+The project remains lightweight: no ingestion database, embeddings, or Calendar
+outbox. XHS is supported by a small URL importer that writes an ordinary
+`source: xhs` knowledge note.
+
+### Import An XHS Note
+
+Paste a copied XHS share link:
+
+```bash
+python3 src/voice_notes_ai.py capture-xhs \
+  --url "https://www.xiaohongshu.com/explore/..."
+```
+
+For Share Sheet or Shortcut capture, save the shared text into the normal inbox
+as `xhs-share-*.txt`. `process-inbox`, `watch-inbox`, or cron will route it
+through the same XHS importer. See
+[docs/xhs-share-capture.md](docs/xhs-share-capture.md).
+
+Short `xhslink.com` links are followed automatically. If the public page is
+hidden behind login or platform protection, provide the shared text explicitly:
+
+```bash
+python3 src/voice_notes_ai.py capture-xhs \
+  --url "https://xhslink.com/..." \
+  --text "The note text"
+```
+
+Use `--enqueue-only` to put the imported text into the normal inbox for cron.
+XHS notes are stored in `xhs/`, marked `source: xhs`, and retain their original
+URL and author when available.
+
+Video posts use an evidence pipeline rather than fixed screenshots:
+
+```text
+video
+-> scene-change frames plus start/end anchors
+-> extracted audio and timestamped transcript
+-> embedded subtitles
+-> visual/OCR evidence for selected frames
+-> evidence timeline
+-> XHS knowledge note
+```
+
+The generated note distinguishes creator speech, visible evidence, OCR text,
+and AI interpretation. Its reusable evidence bundle is archived under
+`processed/xhs/xhs-video-*/content-package.json`.
+
+When a public XHS page exposes its media URL, `capture-xhs` downloads and
+processes it automatically. If login or platform protection hides the media,
+export the video and use:
+
+```bash
+python3 src/voice_notes_ai.py capture-xhs \
+  --url "https://xhslink.com/..." \
+  --video-file "/path/to/exported-video.mp4"
+```
+
+Video ingestion requires FFmpeg. The project checks `VOICE_NOTES_FFMPEG_PATH`,
+the system `PATH`, and the existing Xiaohongshu monitor's `ffmpeg-static`
+installation. See `docs/xhs-video-ingestion.md` for the package contract and
+quality rules.
 
 Test notifications without calling OpenAI:
 
@@ -177,6 +243,17 @@ Discard the newest unprocessed inbox file:
 python3 src/voice_notes_ai.py discard-inbox --latest
 ```
 
+Delete a generated note and its archived source:
+
+```bash
+python3 src/voice_notes_ai.py delete-note xhs/your-note.md --dry-run
+python3 src/voice_notes_ai.py delete-note xhs/your-note.md
+```
+
+`delete-note` uses `index.json` to find the note's archived source, updates
+`index.json`, rebuilds `catalog.md`, and appends to `log.md`. For video notes,
+the archived `processed/xhs/xhs-video-*` evidence bundle is deleted too.
+
 For scheduled processing, install:
 
 ```bash
@@ -185,24 +262,41 @@ crontab automation/voice-notes.crontab
 
 See `docs/action-button-flow.md` for the macOS Full Disk Access step required when cron reads an iCloud inbox.
 
-### 2. Create A Weekly Review
+### 2. Create A Weekly Snippet
 
 ```bash
-python3 src/voice_notes_ai.py weekly-review
+python3 src/voice_notes_ai.py weekly-snippet
 ```
 
 With an explicit date range:
 
 ```bash
-python3 src/voice_notes_ai.py weekly-review --from 2026-06-01 --to 2026-06-07
+python3 src/voice_notes_ai.py weekly-snippet --from 2026-06-01 --to 2026-06-07
 ```
+
+Monthly and flexible period snippets:
+
+```bash
+python3 src/voice_notes_ai.py monthly-snippet
+python3 src/voice_notes_ai.py review --preset yearly
+python3 src/voice_notes_ai.py review --from 2026-01-01 --to 2026-03-31 \
+  --label project-quarter --query "project name"
+```
+
+Snippets default to `--scope personal`; pass `--scope xhs` or `--scope all`
+explicitly when imported knowledge should be included.
 
 ### 3. Search The Vault
 
 ```bash
-python3 src/voice_notes_ai.py search 网球
-python3 src/voice_notes_ai.py search 手腕
+python3 src/voice_notes_ai.py search 网球 --scope personal
+python3 src/voice_notes_ai.py search 网球 --scope xhs
+python3 src/voice_notes_ai.py search 网球 --scope all
 ```
+
+- `personal`: personal voice/text daily notes only.
+- `xhs`: imported XHS daily notes only.
+- `all`: the entire vault, including topics, snippets, and reports.
 
 ### 4. Initialize Default Topics
 
@@ -233,7 +327,7 @@ Recommended flow:
 - Drop new recordings into `inbox/`.
 - Run `process-inbox`, `watch-inbox`, or `ingest`.
 - Browse by date, topic, people, and action items.
-- Run `weekly-review` once a week.
+- Run `weekly-snippet` once a week.
 - Promote important content into `topics/`.
 
 ## LLM Wiki Files

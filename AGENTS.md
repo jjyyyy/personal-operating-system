@@ -2,6 +2,12 @@
 
 You are my personal knowledge assistant.
 
+## Scope
+
+This file contains vault-specific rules. The shared instructions in
+`../AGENTS.md` still govern Git history, `PROJECT_STATE.md`, and project
+continuity unless this file gives a more specific vault rule.
+
 ## Required Start
 
 1. Read `index.md` first.
@@ -18,8 +24,12 @@ Turn scattered captures into a durable Obsidian-style knowledge system. Do not s
 - `inbox/`: unprocessed audio or transcript files.
 - `processed/`: archived immutable source files after ingest.
 - `discarded/`: cancelled or accidental recordings that should not be processed.
-- `daily/`: structured individual notes.
-- `reviews/`: weekly, monthly, and lint reports.
+- `daily/`: personal voice notes and reflections.
+- `xhs/`: imported XHS knowledge, kept separate from personal reflections.
+- `processed/xhs/xhs-video-*/content-package.json`: portable evidence package
+  for imported videos, including timestamps and visual evidence.
+- `snippets/`: weekly and monthly synthesis snippets.
+- `reviews/`: lint and maintenance reports.
 - `topics/`: long-term topic notes and durable memory.
 - `docs/action-button-flow.md`: setup for iPhone Action Button capture.
 - `automation/`: optional LaunchAgent template for background inbox watching.
@@ -32,9 +42,10 @@ Turn scattered captures into a durable Obsidian-style knowledge system. Do not s
 
 1. Files explicitly mentioned in the request.
 2. Relevant `topics/` files.
-3. Recent `reviews/` files.
-4. Relevant `daily/` files.
-5. `Raw Transcript` sections only when details are needed.
+3. Recent `snippets/` files.
+4. Recent `reviews/` files.
+5. Relevant `daily/` files.
+6. `Raw Transcript` sections only when details are needed.
 
 ## Working Rules
 
@@ -50,8 +61,12 @@ Turn scattered captures into a durable Obsidian-style knowledge system. Do not s
 - Preserve existing topic-note judgments. Add only new evidence, patterns, actions, or questions in the right section.
 - Mark uncertain classification as `unsure` instead of pretending certainty.
 - Action items must be concrete and executable. Do not disguise vague ideas as tasks.
-- Weekly reviews should focus on repeated themes, unfinished actions, long-term patterns, and content worth promoting to topic notes.
+- Weekly snippets should focus on repeated themes, unfinished actions, long-term patterns, and content worth promoting to topic notes.
 - Query answers should start with the conclusion, cite relevant notes, and distinguish evidence from inference.
+- Respect source boundaries: `source: voice` is personal input and `source: xhs`
+  is imported external knowledge. Search or answer within the requested scope.
+- For video notes, keep creator speech, visible evidence, OCR text, and AI
+  interpretation distinct. Do not present visual inference as creator intent.
 - Keep Markdown simple and Obsidian-friendly.
 
 ## Maintenance Commands
@@ -60,8 +75,15 @@ Turn scattered captures into a durable Obsidian-style knowledge system. Do not s
 python3 src/voice_notes_ai.py process-inbox
 python3 src/voice_notes_ai.py watch-inbox --once --settle-seconds 20
 python3 src/voice_notes_ai.py discard-inbox --latest
+python3 src/voice_notes_ai.py delete-note xhs/your-note.md --dry-run
 python3 src/voice_notes_ai.py test-notification
-python3 src/voice_notes_ai.py weekly-review
+python3 src/voice_notes_ai.py weekly-snippet
+python3 src/voice_notes_ai.py monthly-snippet
+python3 src/voice_notes_ai.py review --from 2026-01-01 --to 2026-03-31 --label project-quarter --query "project name"
 python3 src/voice_notes_ai.py rebuild-catalog
 python3 src/voice_notes_ai.py lint-wiki
+python3 src/voice_notes_ai.py capture-xhs --url URL
+python3 src/voice_notes_ai.py search QUERY --scope personal
+python3 src/voice_notes_ai.py search QUERY --scope xhs
+python3 src/voice_notes_ai.py search QUERY --scope all
 ```

@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import json
+import mimetypes
 import os
 import re
 import ssl
@@ -15,6 +17,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from transcription_service import transcribe
+from video_ingestion import build_video_content_package, video_evidence_text
+from xhs_import import download_xhs_video, fetch_xhs_note
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,8 +47,10 @@ INBOX_DIR = Path(os.environ.get("VOICE_NOTES_INBOX", VOICE_ROOT / "inbox")).expa
 PROCESSED_DIR = VOICE_ROOT / "processed"
 DISCARDED_DIR = VOICE_ROOT / "discarded"
 DAILY_DIR = VOICE_ROOT / "daily"
+XHS_DIR = VOICE_ROOT / "xhs"
 TOPICS_DIR = VOICE_ROOT / "topics"
 REVIEWS_DIR = VOICE_ROOT / "reviews"
+SNIPPETS_DIR = VOICE_ROOT / "snippets"
 TEMPLATES_DIR = VOICE_ROOT / "templates"
 LOGS_DIR = VOICE_ROOT / "logs"
 INDEX_FILE = VOICE_ROOT / "index.json"
@@ -54,6 +60,12 @@ TRANSCRIPT_EXTENSIONS = {".txt", ".md", ".markdown"}
 AUDIO_EXTENSIONS = {".m4a", ".mp3", ".mp4", ".mpeg", ".mpga", ".wav", ".webm"}
 TEMP_SOURCE_SUFFIXES = {".icloud", ".download", ".part", ".tmp", ".crdownload"}
 TRANSIENT_API_STATUS_CODES = {429, 500, 502, 503, 504}
+SOURCE_TYPES = ("voice", "xhs", "bot")
+XHS_SHARE_PREFIXES = ("xhs-share-", "xiaohongshu-share-")
+XHS_URL_RE = re.compile(
+    r"https?://(?:www\.)?(?:xhslink\.com|xiaohongshu\.com)/[^\s\"'<>，。；;]+",
+    re.IGNORECASE,
+)
 
 
 def ensure_dirs() -> None:
@@ -63,12 +75,17 @@ def ensure_dirs() -> None:
         PROCESSED_DIR,
         DISCARDED_DIR,
         DAILY_DIR,
+        XHS_DIR,
         TOPICS_DIR,
         REVIEWS_DIR,
+        SNIPPETS_DIR,
         TEMPLATES_DIR,
         LOGS_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
+    for root in [INBOX_DIR, PROCESSED_DIR, DISCARDED_DIR]:
+        for source_type in SOURCE_TYPES:
+            (root / source_type).mkdir(parents=True, exist_ok=True)
 
     if not INDEX_FILE.exists():
         INDEX_FILE.write_text("[]\n", encoding="utf-8")
@@ -82,6 +99,16 @@ def require_api_key() -> str:
     if not api_key:
         raise SystemExit("Missing OPENAI_API_KEY. Add it to .env or your shell environment.")
     return api_key
+
+
+def user_alias_hint() -> str:
+    user_file = VOICE_ROOT / "USER.md"
+    if not user_file.exists():
+        return "No self aliases configured."
+    for line in user_file.read_text(encoding="utf-8").splitlines():
+        if "**Self alias:**" in line:
+            return line.split("**Self alias:**", 1)[1].strip()
+    return "No self aliases configured."
 
 
 def read_index() -> list[dict]:
@@ -244,18 +271,23 @@ def api_post_json(url: str, payload: dict, api_key: str) -> dict:
     raise SystemExit("OpenAI API request failed after retries.")
 
 
-def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
+def summarize_capture(
+    transcript: str,
+    note_date: str,
+    source_type: str,
+    api_key: str,
+) -> dict:
     model = os.environ.get("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini")
     prompt = textwrap.dedent(
         f"""
-        You are organizing a user's personal voice note into a clean knowledge note.
+        You are organizing captured material into a clean personal knowledge note.
         Return valid JSON with exactly these keys:
         date, title, source, topics, summary, action_items, people, annotations,
         raw_transcript
 
         Rules:
         - date must stay "{note_date}"
-        - source must be "voice"
+        - source must be "{source_type}"
         - title should be short and concrete
         - topics should be a JSON array of 1-5 short strings
         - summary should be 2-5 bullet-worthy sentences combined into one paragraph
@@ -263,6 +295,18 @@ def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
         - people should be a JSON array
         - annotations should be a JSON array with 0-3 items
         - raw_transcript should preserve the transcript with light cleanup only
+        - USER.md self-alias hint: {user_alias_hint()}
+        - Use the self-alias hint only when context is clear.
+        - If a person reference remains ambiguous, label it "unsure" instead of
+          guessing whether it means the user or another person.
+        - Match the transcript's primary language for title, summary, topics,
+          action_items, and annotations unless a proper noun requires otherwise.
+        - Do not turn analogies into topics or titles. If the transcript says an
+          action is "like badminton" or "similar to serving", keep that as an
+          analogy, not as the activity being practiced.
+        - If the transcript context suggests a likely transcription ambiguity
+          between sports terms, prefer the broader established context and mark
+          uncertainty instead of inventing a new sport category.
 
         Annotation policy:
         - Returning an empty annotations array is normal and preferred for most notes.
@@ -280,6 +324,11 @@ def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
         - basis must be one of: established-knowledge, model-inference,
           needs-research.
         - Never present changing or uncertain information as established knowledge.
+        - For XHS video evidence, distinguish creator speech, visibly observed
+          evidence, OCR text, and AI interpretation. Never turn an AI visual
+          inference into a claim made by the creator.
+        - For tutorials or demonstrations, preserve ordered steps and attach
+          timestamps to important actions when timestamps are available.
 
         Transcript:
         {transcript}
@@ -393,6 +442,10 @@ def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
     return data
 
 
+def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
+    return summarize_capture(transcript, note_date, "voice", api_key)
+
+
 def quote_callout_text(value: str) -> str:
     return "\n".join(f"> {line}" if line else ">" for line in value.splitlines())
 
@@ -431,11 +484,35 @@ def note_markdown(note: dict) -> str:
     action_items = "\n".join(f"- {item}" for item in note["action_items"]) or "-"
     people = "\n".join(f"- {item}" for item in note["people"]) or "-"
     links = "\n".join(f"- {topic_link(topic)}" for topic in note["topics"]) or "-"
-
+    source_details = ""
+    if note.get("source_url") or note.get("source_author"):
+        details = ["## Source", ""]
+        if note.get("source_url"):
+            details.append(f"- URL: {note['source_url']}")
+        if note.get("source_author"):
+            details.append(f"- Author: {note['source_author']}")
+        if note.get("source_kind"):
+            details.append(f"- Content kind: {note['source_kind']}")
+        if note.get("source_artifact"):
+            details.append(f"- Evidence package: `{note['source_artifact']}`")
+        source_details = "\n".join(details) + "\n\n"
+    raw_heading = "Raw Transcript" if note["source"] == "voice" else "Imported Content"
+    source_frontmatter = ""
+    if note.get("source_url"):
+        source_frontmatter += (
+            f"source_url: {json.dumps(note['source_url'], ensure_ascii=False)}\n"
+        )
+    if note.get("source_author"):
+        source_frontmatter += (
+            f"source_author: {json.dumps(note['source_author'], ensure_ascii=False)}\n"
+        )
+    if note.get("source_kind"):
+        source_frontmatter += f"source_kind: {note['source_kind']}\n"
     return (
         f"---\n"
         f"date: {note['date']}\n"
         f"source: {note['source']}\n"
+        f"{source_frontmatter}"
         f"topics: {json.dumps(note['topics'], ensure_ascii=False)}\n"
         f"people: {json.dumps(note['people'], ensure_ascii=False)}\n"
         f"title: {note['title']}\n"
@@ -452,7 +529,8 @@ def note_markdown(note: dict) -> str:
         f"{people}\n\n"
         f"## Links\n\n"
         f"{links}\n\n"
-        f"## Raw Transcript\n\n"
+        f"{source_details}"
+        f"## {raw_heading}\n\n"
         f"{note['raw_transcript']}\n"
     )
 
@@ -460,7 +538,8 @@ def note_markdown(note: dict) -> str:
 def save_note(note: dict, source_file: Path) -> Path:
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     filename = f"{note['date']}-{slugify(note['title'])}-{timestamp}.md"
-    output_path = DAILY_DIR / filename
+    output_dir = XHS_DIR if note.get("source") == "xhs" else DAILY_DIR
+    output_path = output_dir / filename
     output_path.write_text(note_markdown(note), encoding="utf-8")
 
     index = read_index()
@@ -471,6 +550,9 @@ def save_note(note: dict, source_file: Path) -> Path:
             "topics": note["topics"],
             "people": note["people"],
             "summary": note["summary"],
+            "source": note.get("source", "voice"),
+            "source_url": note.get("source_url"),
+            "source_kind": note.get("source_kind"),
             "source_file": path_for_index(source_file),
             "note_file": path_for_index(output_path),
         }
@@ -483,7 +565,8 @@ def rebuild_catalog() -> Path:
     ensure_dirs()
     items = sorted(read_index(), key=lambda item: (item.get("date", ""), item.get("title", "")))
     topic_files = sorted(TOPICS_DIR.glob("*.md"), key=lambda path: path.name.lower())
-    review_files = sorted(REVIEWS_DIR.glob("*.md"), key=lambda path: path.name.lower())
+    snippet_files = sorted(SNIPPETS_DIR.glob("*.md"), key=lambda path: path.name.lower())
+    report_files = sorted(REVIEWS_DIR.glob("*.md"), key=lambda path: path.name.lower())
 
     lines = [
         "# Personal Operating System Catalog",
@@ -500,14 +583,32 @@ def rebuild_catalog() -> Path:
     else:
         lines.append("- No topic notes yet.")
 
-    lines.extend(["", "## Reviews", ""])
-    if review_files:
-        for path in review_files:
+    lines.extend(["", "## Snippets", ""])
+    if snippet_files:
+        for path in snippet_files:
             lines.append(f"- {obsidian_link(path)}: {first_content_line(path)}")
     else:
-        lines.append("- No reviews yet.")
+        lines.append("- No snippets yet.")
 
-    lines.extend(["", "## Daily Notes", ""])
+    lines.extend(["", "## Maintenance Reports", ""])
+    if report_files:
+        for path in report_files:
+            lines.append(f"- {obsidian_link(path)}: {first_content_line(path)}")
+    else:
+        lines.append("- No maintenance reports yet.")
+
+    personal_items = [item for item in items if item.get("source", "voice") != "xhs"]
+    xhs_items = [item for item in items if item.get("source") == "xhs"]
+    lines.extend(["", "## Personal Captures", ""])
+    append_catalog_items(lines, personal_items)
+    lines.extend(["", "## XHS Knowledge", ""])
+    append_catalog_items(lines, xhs_items)
+
+    CATALOG_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return CATALOG_FILE
+
+
+def append_catalog_items(lines: list[str], items: list[dict]) -> None:
     if items:
         for item in items:
             note_path = VOICE_ROOT / item["note_file"]
@@ -518,28 +619,105 @@ def rebuild_catalog() -> Path:
             lines.append(f"  - Topics: {topics}")
             lines.append(f"  - Summary: {summary}")
     else:
-        lines.append("- No daily notes yet.")
-
-    CATALOG_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return CATALOG_FILE
+        lines.append("- None yet.")
 
 
-def archive_source(source_path: Path) -> Path:
-    destination = PROCESSED_DIR / source_path.name
+def vault_path(raw_path: str | Path) -> Path:
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = VOICE_ROOT / path
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(VOICE_ROOT.resolve())
+    except ValueError as exc:
+        raise SystemExit(f"Refusing to operate outside vault: {path}") from exc
+    return resolved
+
+
+def find_index_item_for_note(note_path: Path) -> tuple[dict, list[dict]]:
+    target = path_for_index(note_path)
+    items = read_index()
+    matches = [item for item in items if item.get("note_file") == target]
+    if not matches:
+        raise SystemExit(f"Note is not tracked in index.json: {target}")
+    if len(matches) > 1:
+        raise SystemExit(f"Multiple index entries match note: {target}")
+    return matches[0], items
+
+
+def delete_path(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
+
+
+def delete_note(note_path: Path, dry_run: bool = False) -> tuple[Path, Path | None]:
+    ensure_dirs()
+    resolved_note = vault_path(note_path)
+    item, items = find_index_item_for_note(resolved_note)
+    raw_source = item.get("source_file")
+    source_path = vault_path(raw_source) if raw_source else None
+
+    removed = [
+        f"- Note: {path_for_index(resolved_note)}",
+    ]
+    if source_path:
+        removed.append(f"- Source: {path_for_index(source_path)}")
+
+    if dry_run:
+        print("Would delete:")
+        for line in removed:
+            print(line)
+        return resolved_note, source_path
+
+    delete_path(resolved_note)
+    if source_path:
+        delete_path(source_path)
+
+    write_index([entry for entry in items if entry is not item])
+    rebuild_catalog()
+    append_log("delete", item.get("title", resolved_note.stem), removed)
+    print(f"Deleted note: {resolved_note}")
+    if source_path:
+        print(f"Deleted source: {source_path}")
+    return resolved_note, source_path
+
+
+def normalized_source_type(source_type: str | None) -> str:
+    return source_type if source_type in SOURCE_TYPES else "voice"
+
+
+def infer_source_type(source_path: Path) -> str:
+    name = source_path.name.lower()
+    if source_path.parent.name in SOURCE_TYPES:
+        return source_path.parent.name
+    if name.startswith("xhs-"):
+        return "xhs"
+    if name.startswith("shared-capture-"):
+        return "bot"
+    return "voice"
+
+
+def archive_source(source_path: Path, source_type: str = "voice") -> Path:
+    destination_dir = PROCESSED_DIR / normalized_source_type(source_type)
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / source_path.name
     counter = 1
     while destination.exists():
-        destination = PROCESSED_DIR / f"{source_path.stem}-{counter}{source_path.suffix}"
+        destination = destination_dir / f"{source_path.stem}-{counter}{source_path.suffix}"
         counter += 1
     shutil.move(str(source_path), str(destination))
     return destination
 
 
-def move_to_discarded(source_path: Path) -> Path:
+def move_to_discarded(source_path: Path, source_type: str = "voice") -> Path:
     ensure_dirs()
-    destination = DISCARDED_DIR / source_path.name
+    destination_dir = DISCARDED_DIR / normalized_source_type(source_type)
+    destination = destination_dir / source_path.name
     counter = 1
     while destination.exists():
-        destination = DISCARDED_DIR / f"{source_path.stem}-{counter}{source_path.suffix}"
+        destination = destination_dir / f"{source_path.stem}-{counter}{source_path.suffix}"
         counter += 1
     shutil.move(str(source_path), str(destination))
     append_log(
@@ -577,11 +755,49 @@ def is_source_ready(source_path: Path, settle_seconds: int = 0) -> bool:
     return age_seconds >= settle_seconds
 
 
-def ingest(source_path: Path, note_date: dt.date | None = None) -> None:
+def source_metadata_from_text(text: str) -> tuple[str | None, str | None]:
+    url_match = re.search(r"^Source URL:\s*(\S+)", text, re.MULTILINE)
+    author_match = re.search(r"^Author:\s*(.+)$", text, re.MULTILINE)
+    return (
+        url_match.group(1).strip() if url_match else None,
+        author_match.group(1).strip() if author_match else None,
+    )
+
+
+def extract_xhs_url(text: str) -> str | None:
+    match = XHS_URL_RE.search(text)
+    if not match:
+        return None
+    return match.group(0).rstrip(".,!?)]}）】")
+
+
+def is_xhs_share_source(source_path: Path) -> bool:
+    if not is_transcript_file(source_path):
+        return False
+    lowered = source_path.name.lower()
+    return any(lowered.startswith(prefix) for prefix in XHS_SHARE_PREFIXES)
+
+
+def xhs_source_text(imported: dict) -> str:
+    source_lines = [f"Source URL: {imported['url']}"]
+    if imported.get("title"):
+        source_lines.append(f"Original title: {imported['title']}")
+    if imported.get("author"):
+        source_lines.append(f"Author: {imported['author']}")
+    source_lines.extend(["", imported["text"]])
+    return "\n".join(source_lines).strip()
+
+
+def ingest(
+    source_path: Path,
+    note_date: dt.date | None = None,
+    source_type: str | None = None,
+) -> Path:
     ensure_dirs()
     if not source_path.exists():
         raise SystemExit(f"Source file not found: {source_path}")
-
+    if source_type is None and is_xhs_share_source(source_path):
+        return ingest_xhs_share_source(source_path)
     api_key = require_api_key()
     resolved_date = (note_date or dt.date.today()).isoformat()
 
@@ -594,10 +810,28 @@ def ingest(source_path: Path, note_date: dt.date | None = None) -> None:
         print(f"Transcribing {source_path.name}...")
         transcript = transcribe(source_path, api_key)["text"]
 
+    resolved_source = source_type or infer_source_type(source_path)
     print("Generating structured note...")
-    note = summarize_transcript(transcript, resolved_date, api_key)
+    note = summarize_capture(transcript, resolved_date, resolved_source, api_key)
+    note["source"] = resolved_source
+    if resolved_source == "xhs":
+        source_url, source_author = source_metadata_from_text(transcript)
+        note["source_url"] = source_url
+        note["source_author"] = source_author
     note["raw_transcript"] = transcript
-    archived_path = archive_source(source_path)
+    return finalize_ingest(note, source_path, resolved_source)
+
+
+def finalize_ingest(
+    note: dict,
+    source_path: Path,
+    resolved_source: str,
+) -> Path:
+    archived_path = archive_source(source_path, resolved_source)
+    if note.get("source_kind") == "video":
+        note["source_artifact"] = path_for_index(
+            archived_path / "content-package.json"
+        )
     output_path = save_note(note, archived_path)
     rebuild_catalog()
     append_log(
@@ -605,18 +839,259 @@ def ingest(source_path: Path, note_date: dt.date | None = None) -> None:
         note["title"],
         [
             f"- Source: {path_for_index(archived_path)}",
-            f"- Daily note: {obsidian_link(output_path, note['title'])}",
+            f"- Knowledge note: {obsidian_link(output_path, note['title'])}",
             f"- Topics: {existing_topic_links(note['topics'])}",
         ],
     )
     print(f"Saved note: {output_path}")
     print(f"Archived source: {archived_path}")
-    send_notification(note["title"], "Voice note parsed")
+    send_notification(
+        note["title"],
+        "XHS note imported" if resolved_source == "xhs" else "Voice note parsed",
+    )
+    return output_path
+
+
+def prepare_xhs_source(
+    url: str,
+    fallback_text: str | None = None,
+    title: str | None = None,
+    author: str | None = None,
+    imported: dict | None = None,
+) -> Path:
+    ensure_dirs()
+    if fallback_text:
+        imported = {
+            "url": url,
+            "title": title or "",
+            "author": author or "",
+            "text": fallback_text.strip(),
+        }
+    elif imported is None:
+        print("Fetching XHS note...")
+        imported = fetch_xhs_note(url)
+
+    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    source_path = INBOX_DIR / f"xhs-{timestamp}.txt"
+    source_path.write_text(xhs_source_text(imported) + "\n", encoding="utf-8")
+    return source_path
+
+
+def ingest_xhs(url: str, fallback_text: str | None = None) -> Path:
+    imported = None if fallback_text else fetch_xhs_note(url)
+    if imported and imported.get("kind") == "video":
+        return ingest_xhs_video(imported)
+    source_path = prepare_xhs_source(
+        url,
+        fallback_text,
+        imported=imported,
+    )
+    return ingest(source_path, source_type="xhs")
+
+
+def image_data_url(path: Path) -> str:
+    mime_type = mimetypes.guess_type(path.name)[0] or "image/jpeg"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def analyze_video_frames(frame_records: list[dict], api_key: str) -> list[dict]:
+    content: list[dict] = [
+        {
+            "type": "input_text",
+            "text": (
+                "Analyze these chronological XHS video frames as evidence. "
+                "For each frame, report only clearly visible content and visible "
+                "text, then optionally provide a cautious interpretation. Do not "
+                "infer creator intent, unseen actions, identities, exact counts, "
+                "or claims that the image does not establish."
+            ),
+        }
+    ]
+    for record in frame_records:
+        content.extend(
+            [
+                {
+                    "type": "input_text",
+                    "text": (
+                        f"Frame {record['index']} at "
+                        f"{record['timestamp']:.3f} seconds"
+                    ),
+                },
+                {
+                    "type": "input_image",
+                    "image_url": image_data_url(record["path"]),
+                    "detail": "high",
+                },
+            ]
+        )
+    response = api_post_json(
+        "https://api.openai.com/v1/responses",
+        payload={
+            "model": os.environ.get("OPENAI_VISION_MODEL", "gpt-4.1-mini"),
+            "input": [{"role": "user", "content": content}],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "video_frame_evidence",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "events": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "frame_index": {"type": "integer"},
+                                        "timestamp": {"type": "number"},
+                                        "visible_content": {"type": "string"},
+                                        "visible_text": {"type": "string"},
+                                        "interpretation": {"type": "string"},
+                                    },
+                                    "required": [
+                                        "frame_index",
+                                        "timestamp",
+                                        "visible_content",
+                                        "visible_text",
+                                        "interpretation",
+                                    ],
+                                },
+                            }
+                        },
+                        "required": ["events"],
+                    },
+                }
+            },
+        },
+        api_key=api_key,
+    )
+    try:
+        output_text = (
+            response.get("output_text")
+            or response["output"][0]["content"][0]["text"]
+        )
+        raw_events = json.loads(output_text)["events"]
+    except (KeyError, IndexError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Could not parse video frame analysis.") from exc
+    authoritative_times = {
+        int(record["index"]): float(record["timestamp"])
+        for record in frame_records
+    }
+    events = []
+    for event in raw_events:
+        frame_index = int(event.get("frame_index", 0))
+        if frame_index not in authoritative_times:
+            continue
+        events.append(
+            {
+                "frame_index": frame_index,
+                "timestamp": authoritative_times[frame_index],
+                "visible_content": str(event.get("visible_content", "")).strip(),
+                "visible_text": str(event.get("visible_text", "")).strip(),
+                "interpretation": str(event.get("interpretation", "")).strip(),
+            }
+        )
+    return sorted(events, key=lambda event: event["timestamp"])
+
+
+def ingest_xhs_video(
+    imported: dict,
+    local_video: Path | None = None,
+    share_source: Path | None = None,
+) -> Path:
+    ensure_dirs()
+    api_key = require_api_key()
+    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    bundle_dir = INBOX_DIR / f"xhs-video-{timestamp}"
+    bundle_dir.mkdir(parents=True)
+    video_path = bundle_dir / "source-video.mp4"
+    try:
+        if share_source:
+            shutil.copy2(share_source, bundle_dir / "share.txt")
+        if local_video:
+            source = local_video.expanduser().resolve()
+            if not source.exists():
+                raise SystemExit(f"Video file not found: {source}")
+            shutil.copy2(source, video_path)
+        else:
+            video_url = str(imported.get("video_url") or "")
+            if not video_url:
+                raise SystemExit(
+                    "This post appears to be a video, but no downloadable media URL "
+                    "was exposed. Export it locally and pass --video-file."
+                )
+            print("Downloading XHS video...")
+            download_xhs_video(
+                video_url,
+                video_path,
+                referer=str(imported.get("url") or ""),
+            )
+
+        print("Extracting timestamped video evidence...")
+        package = build_video_content_package(
+            video_path=video_path,
+            destination_dir=bundle_dir,
+            api_key=api_key,
+            analyze_frames=analyze_video_frames,
+            title=str(imported.get("title") or ""),
+            post_text=str(imported.get("text") or ""),
+            source_url=str(imported.get("url") or ""),
+        )
+        evidence = video_evidence_text(
+            package,
+            author=str(imported.get("author") or ""),
+        )
+        print("Generating structured video knowledge note...")
+        note = summarize_capture(
+            evidence,
+            dt.date.today().isoformat(),
+            "xhs",
+            api_key,
+        )
+        note.update(
+            {
+                "source": "xhs",
+                "source_kind": "video",
+                "source_url": imported.get("url"),
+                "source_author": imported.get("author"),
+                "raw_transcript": evidence,
+            }
+        )
+        return finalize_ingest(note, bundle_dir, "xhs")
+    except (Exception, SystemExit):
+        if bundle_dir.exists():
+            shutil.rmtree(bundle_dir)
+        raise
+
+
+def ingest_xhs_share_source(source_path: Path) -> Path:
+    share_text = source_path.read_text(encoding="utf-8").strip()
+    url = extract_xhs_url(share_text)
+    if not url:
+        raise SystemExit(
+            "XHS share file did not contain an xhslink.com or xiaohongshu.com URL."
+        )
+
+    print("Fetching shared XHS note...")
+    imported = fetch_xhs_note(url)
+    if imported.get("kind") == "video":
+        output_path = ingest_xhs_video(imported, share_source=source_path)
+        source_path.unlink(missing_ok=True)
+        return output_path
+
+    source_path.write_text(xhs_source_text(imported) + "\n", encoding="utf-8")
+    return ingest(source_path, source_type="xhs")
 
 
 def process_source_safely(source_path: Path, note_date: dt.date | None = None) -> bool:
     try:
-        ingest(source_path, note_date)
+        if is_xhs_share_source(source_path):
+            ingest_xhs_share_source(source_path)
+        else:
+            ingest(source_path, note_date)
         return True
     except SystemExit as exc:
         error_message = str(exc)
@@ -638,12 +1113,26 @@ def process_source_safely(source_path: Path, note_date: dt.date | None = None) -
 
 def inbox_sources() -> list[Path]:
     ensure_dirs()
-    return sorted(path for path in INBOX_DIR.iterdir() if path.is_file() and is_supported_source(path))
+    sources = [
+        path
+        for path in INBOX_DIR.iterdir()
+        if path.is_file() and is_supported_source(path)
+    ]
+    for source_type in SOURCE_TYPES:
+        source_dir = INBOX_DIR / source_type
+        sources.extend(
+            path
+            for path in source_dir.iterdir()
+            if path.is_file() and is_supported_source(path)
+        )
+    return sorted(sources)
 
 
 def ready_inbox_sources(settle_seconds: int = 0) -> list[Path]:
     ensure_dirs()
-    return sorted(path for path in INBOX_DIR.iterdir() if path.is_file() and is_source_ready(path, settle_seconds))
+    return sorted(
+        path for path in inbox_sources() if is_source_ready(path, settle_seconds)
+    )
 
 
 def resolve_inbox_source(raw_path: Path) -> Path:
@@ -652,6 +1141,10 @@ def resolve_inbox_source(raw_path: Path) -> Path:
     inbox_path = INBOX_DIR / raw_path
     if inbox_path.exists():
         return inbox_path
+    for source_type in SOURCE_TYPES:
+        nested_path = INBOX_DIR / source_type / raw_path
+        if nested_path.exists():
+            return nested_path
     raise SystemExit(f"Source file not found: {raw_path}")
 
 
@@ -669,7 +1162,10 @@ def discard_inbox(source_files: list[Path], latest: bool = False) -> None:
         raise SystemExit("Pass one or more inbox files, or use --latest.")
 
     for source_path in sources:
-        discarded_path = move_to_discarded(source_path)
+        discarded_path = move_to_discarded(
+            source_path,
+            infer_source_type(source_path),
+        )
         print(f"Discarded: {discarded_path}")
 
 
@@ -705,40 +1201,100 @@ def watch_inbox(
         time.sleep(interval_seconds)
 
 
-def load_note_files_in_range(date_from: dt.date, date_to: dt.date) -> list[Path]:
+def note_dirs_for_scope(scope: str) -> list[Path]:
+    if scope == "personal":
+        return [DAILY_DIR]
+    if scope == "xhs":
+        return [XHS_DIR]
+    if scope == "all":
+        return [DAILY_DIR, XHS_DIR]
+    raise ValueError(f"Unsupported scope: {scope}")
+
+
+def load_note_files_in_range(
+    date_from: dt.date,
+    date_to: dt.date,
+    scope: str = "personal",
+    query: str | None = None,
+) -> list[Path]:
     files: list[Path] = []
-    for path in sorted(DAILY_DIR.glob("*.md")):
-        date_prefix = path.name[:10]
-        try:
-            note_date = dt.date.fromisoformat(date_prefix)
-        except ValueError:
-            continue
-        if date_from <= note_date <= date_to:
+    query_pattern = re.compile(re.escape(query), re.IGNORECASE) if query else None
+    for base_dir in note_dirs_for_scope(scope):
+        for path in sorted(base_dir.glob("*.md")):
+            date_prefix = path.name[:10]
+            try:
+                note_date = dt.date.fromisoformat(date_prefix)
+            except ValueError:
+                continue
+            if not date_from <= note_date <= date_to:
+                continue
+            if query_pattern and not query_pattern.search(path.read_text(encoding="utf-8")):
+                continue
             files.append(path)
     return files
 
 
-def weekly_review(date_from: dt.date, date_to: dt.date) -> Path:
+def period_review(
+    date_from: dt.date,
+    date_to: dt.date,
+    label: str,
+    scope: str = "personal",
+    query: str | None = None,
+    force: bool = False,
+) -> Path:
     ensure_dirs()
-    api_key = require_api_key()
-    note_files = load_note_files_in_range(date_from, date_to)
-    if not note_files:
-        raise SystemExit(f"No notes found between {date_from} and {date_to}.")
+    filename = f"{date_from}_to_{date_to}_{slugify(label)}_snippet.md"
+    output_path = SNIPPETS_DIR / filename
+    if output_path.exists() and not force:
+        print(f"Snippet already exists, skipping: {output_path}")
+        return output_path
 
+    note_files = load_note_files_in_range(date_from, date_to, scope, query)
+    if not note_files:
+        focus = f" matching {query!r}" if query else ""
+        raise SystemExit(
+            f"No {scope} notes found between {date_from} and {date_to}{focus}."
+        )
+
+    api_key = require_api_key()
     notes_blob = "\n\n".join(path.read_text(encoding="utf-8") for path in note_files)
     model = os.environ.get("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini")
+    focus_instruction = (
+        f"- Focus only on material relevant to: {query}" if query else
+        "- Cover the most important material in the selected period."
+    )
     prompt = textwrap.dedent(
         f"""
-        Read the following weekly notes and write a weekly review in Markdown.
+        Read the following personal knowledge notes and write a {label} snippet
+        in Markdown.
 
-        Include:
-        - Top themes
-        - Repeated topics
-        - Action items
-        - People mentioned
-        - Suggested updates for long-term topic notes
+        Style:
+        - This is a personal weekly snippet, not a project status report.
+        - Match the user's dominant language in the selected notes. If most
+          notes are Mandarin, write in natural, easy Mandarin.
+        - Sound warm, close, and readable, like a thoughtful personal digest.
+        - Avoid corporate tone, instruction-manual structure, and inflated
+          headings.
+        - Prefer a few meaningful sections over exhaustive coverage.
 
+        Review scope: {scope}
         Date range: {date_from} to {date_to}
+        {focus_instruction}
+        Source fidelity:
+        - Do not introduce activities, tools, people, or decisions unless they
+          appear in the notes.
+        - Do not turn analogies into topics. If a note says something is similar
+          to badminton, do not call it badminton practice.
+        - If a note title/topic conflicts with its raw transcript, mention the
+          uncertainty or follow the raw transcript.
+        If the scope is "all", clearly distinguish personal observations from
+        imported XHS knowledge. Do not attribute imported claims to the user.
+
+        Include, in a natural format:
+        - What seemed to matter emotionally or practically this week
+        - Repeated themes
+        - Loose ends or things to return to
+        - A few topic-note promotion suggestions only if they truly feel durable
 
         Notes:
         {notes_blob}
@@ -753,42 +1309,101 @@ def weekly_review(date_from: dt.date, date_to: dt.date) -> Path:
     try:
         review_text = (response.get("output_text") or response["output"][0]["content"][0]["text"]).strip()
     except (KeyError, IndexError) as exc:
-        raise SystemExit(f"Could not parse weekly review response: {json.dumps(response, ensure_ascii=False)}") from exc
+        raise SystemExit(f"Could not parse snippet response: {json.dumps(response, ensure_ascii=False)}") from exc
 
-    filename = f"{date_from}_to_{date_to}_weekly_review.md"
-    output_path = REVIEWS_DIR / filename
     output_path.write_text(review_text + "\n", encoding="utf-8")
     rebuild_catalog()
     append_log(
         "review",
-        f"Weekly review {date_from} to {date_to}",
-        [f"- Review: {obsidian_link(output_path)}"],
+        f"{label.title()} snippet {date_from} to {date_to}",
+        [
+            f"- Scope: {scope}",
+            f"- Snippet: {obsidian_link(output_path)}",
+        ],
     )
     return output_path
 
 
-def search_notes(query: str) -> list[tuple[Path, int, str]]:
+def weekly_review(
+    date_from: dt.date,
+    date_to: dt.date,
+    scope: str = "personal",
+    query: str | None = None,
+    force: bool = False,
+) -> Path:
+    return period_review(date_from, date_to, "weekly", scope, query, force)
+
+
+def scheduled_snippet(period: str) -> Path:
+    started = dt.datetime.now().isoformat(timespec="seconds")
+    print(f"{period}-snippet start: {started}")
+    try:
+        if period == "weekly":
+            date_from, date_to = resolve_review_range("weekly", None, None)
+            output_path = weekly_review(date_from, date_to, scope="personal")
+        elif period == "monthly":
+            date_from, date_to = resolve_review_range("monthly", None, None)
+            output_path = period_review(date_from, date_to, "monthly", scope="personal")
+        else:
+            raise SystemExit(f"Unsupported scheduled snippet period: {period}")
+    except SystemExit as exc:
+        print(f"{period}-snippet failed: {exc}")
+        raise
+    except Exception as exc:
+        print(f"{period}-snippet failed: {type(exc).__name__}: {exc}")
+        raise
+    finished = dt.datetime.now().isoformat(timespec="seconds")
+    print(f"{period}-snippet saved: {output_path}")
+    print(f"{period}-snippet exit=0: {finished}")
+    return output_path
+
+
+def note_source(path: Path) -> str:
+    for line in path.read_text(encoding="utf-8").splitlines()[:20]:
+        if line.startswith("source:"):
+            return line.split(":", 1)[1].strip()
+    return "voice"
+
+
+def search_notes(
+    query: str,
+    scope: str = "all",
+) -> list[tuple[Path, int, str]]:
     ensure_dirs()
     pattern = re.compile(re.escape(query), re.IGNORECASE)
     results: list[tuple[Path, int, str]] = []
-    root_files = [
-        VOICE_ROOT / "index.md",
-        VOICE_ROOT / "00-home.md",
-        VOICE_ROOT / "01-methodology.md",
-        VOICE_ROOT / "02-operating-system.md",
-        VOICE_ROOT / "AGENTS.md",
-        VOICE_ROOT / "catalog.md",
-        VOICE_ROOT / "log.md",
-    ]
-    for path in root_files:
-        if not path.exists():
-            continue
-        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            if pattern.search(line):
-                results.append((path, line_number, line.strip()))
+    if scope == "all":
+        root_files = [
+            VOICE_ROOT / "index.md",
+            VOICE_ROOT / "00-home.md",
+            VOICE_ROOT / "01-methodology.md",
+            VOICE_ROOT / "02-operating-system.md",
+            VOICE_ROOT / "AGENTS.md",
+            VOICE_ROOT / "catalog.md",
+            VOICE_ROOT / "log.md",
+        ]
+        for path in root_files:
+            if not path.exists():
+                continue
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(),
+                start=1,
+            ):
+                if pattern.search(line):
+                    results.append((path, line_number, line.strip()))
 
-    for base_dir in [TOPICS_DIR, REVIEWS_DIR, DAILY_DIR]:
+    base_dirs = (
+        [TOPICS_DIR, REVIEWS_DIR, SNIPPETS_DIR, DAILY_DIR, XHS_DIR]
+        if scope == "all"
+        else note_dirs_for_scope(scope)
+    )
+    for base_dir in base_dirs:
         for path in sorted(base_dir.glob("*.md")):
+            source = note_source(path)
+            if scope == "personal" and source == "xhs":
+                continue
+            if scope == "xhs" and source != "xhs":
+                continue
             for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 if pattern.search(line):
                     results.append((path, line_number, line.strip()))
@@ -808,7 +1423,7 @@ def markdown_files() -> list[Path]:
         VOICE_ROOT / "CLAUDE.md",
     ]
     files = [path for path in root_files if path.exists()]
-    for base_dir in [TOPICS_DIR, REVIEWS_DIR, DAILY_DIR, TEMPLATES_DIR, VOICE_ROOT / "prompts", VOICE_ROOT / "docs"]:
+    for base_dir in [TOPICS_DIR, REVIEWS_DIR, SNIPPETS_DIR, DAILY_DIR, XHS_DIR, TEMPLATES_DIR, VOICE_ROOT / "prompts", VOICE_ROOT / "docs"]:
         if base_dir.exists():
             files.extend(sorted(base_dir.glob("*.md")))
     return files
@@ -913,6 +1528,45 @@ def init_topics() -> list[Path]:
     return created
 
 
+def save_text_capture(text: str, prefix: str) -> Path:
+    ensure_dirs()
+    cleaned = text.strip()
+    if not cleaned:
+        raise SystemExit("Capture text is empty.")
+    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    output_path = INBOX_DIR / f"{prefix}-{timestamp}.txt"
+    output_path.write_text(cleaned + "\n", encoding="utf-8")
+    return output_path
+
+
+def capture_manifest_as_regular_source(manifest_path: Path) -> tuple[Path, str]:
+    if not manifest_path.exists():
+        raise SystemExit(f"Manifest not found: {manifest_path}")
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    source_type = normalized_source_type(str(payload.get("source_type") or "bot"))
+    text = str(payload.get("text") or payload.get("body") or "").strip()
+    if text:
+        source_url = str(payload.get("url") or payload.get("source_uri") or "").strip()
+        if source_url:
+            text = f"Source: {source_url}\n\n{text}"
+        return save_text_capture(text, "shared-capture"), source_type
+
+    files = payload.get("files") or []
+    if len(files) == 1:
+        source = Path(files[0]).expanduser()
+        if not source.is_absolute():
+            source = manifest_path.parent / source
+        source = source.resolve()
+        if source.exists() and is_supported_source(source):
+            destination = INBOX_DIR / source.name
+            if source != destination:
+                shutil.copy2(source, destination)
+            return destination, source_type
+    raise SystemExit(
+        "Manifest compatibility mode requires text/body or one supported local file."
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Voice notes AI workflow")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -935,18 +1589,115 @@ def parse_args() -> argparse.Namespace:
     discard_parser.add_argument("source_files", nargs="*", type=Path)
     discard_parser.add_argument("--latest", action="store_true", help="Discard the newest supported inbox file")
 
-    review_parser = subparsers.add_parser("weekly-review", help="Create a weekly review from daily notes")
+    delete_parser = subparsers.add_parser("delete-note", help="Delete an indexed note and its archived source")
+    delete_parser.add_argument("note_file", type=Path)
+    delete_parser.add_argument("--dry-run", action="store_true", help="Show what would be deleted")
+
+    review_parser = subparsers.add_parser("weekly-review", help="Legacy alias for weekly-snippet")
     review_parser.add_argument("--from", dest="date_from", type=str, default=None)
     review_parser.add_argument("--to", dest="date_to", type=str, default=None)
+    add_review_options(review_parser)
+
+    weekly_snippet_parser = subparsers.add_parser("weekly-snippet", help="Create a weekly personal snippet")
+    weekly_snippet_parser.add_argument("--from", dest="date_from", type=str, default=None)
+    weekly_snippet_parser.add_argument("--to", dest="date_to", type=str, default=None)
+    add_review_options(weekly_snippet_parser)
+
+    monthly_parser = subparsers.add_parser(
+        "monthly-review",
+        help="Legacy alias for monthly-snippet",
+    )
+    add_review_options(monthly_parser)
+
+    monthly_snippet_parser = subparsers.add_parser(
+        "monthly-snippet",
+        help="Create a snippet for the previous calendar month",
+    )
+    add_review_options(monthly_snippet_parser)
+
+    scheduled_snippet_parser = subparsers.add_parser(
+        "scheduled-snippet",
+        help="Run a scheduled snippet with cron-friendly logging",
+    )
+    scheduled_snippet_parser.add_argument("period", choices=["weekly", "monthly"])
+
+    period_parser = subparsers.add_parser(
+        "review",
+        help="Review a preset or custom time range",
+    )
+    period_parser.add_argument(
+        "--preset",
+        choices=["weekly", "monthly", "yearly"],
+        default=None,
+    )
+    period_parser.add_argument("--from", dest="date_from", type=str, default=None)
+    period_parser.add_argument("--to", dest="date_to", type=str, default=None)
+    period_parser.add_argument("--label", default=None)
+    add_review_options(period_parser)
 
     search_parser = subparsers.add_parser("search", help="Search topic, review, and daily notes")
     search_parser.add_argument("query", type=str)
+    search_parser.add_argument(
+        "--scope",
+        choices=["personal", "xhs", "all"],
+        default="all",
+        help="Search personal captures, XHS imports, or the whole vault",
+    )
+
+    capture_parser = subparsers.add_parser(
+        "capture",
+        help="Compatibility: convert a text/media manifest into the regular inbox",
+    )
+    capture_parser.add_argument("--manifest", required=True, type=Path)
+
+    xhs_parser = subparsers.add_parser(
+        "capture-xhs",
+        help="Fetch an XHS share link and convert it into a knowledge note",
+    )
+    xhs_parser.add_argument("--url", required=True)
+    xhs_parser.add_argument("--text", default=None)
+    xhs_parser.add_argument("--text-file", type=Path, default=None)
+    xhs_parser.add_argument("--title", default=None)
+    xhs_parser.add_argument("--author", default=None)
+    xhs_parser.add_argument(
+        "--video-file",
+        type=Path,
+        default=None,
+        help="Use an exported local video when XHS does not expose the media URL",
+    )
+    xhs_parser.add_argument("--note-id", default=None)
+    xhs_parser.add_argument("--enqueue-only", action="store_true")
+
+    status_parser = subparsers.add_parser("status", help="Compatibility command; platform state is deferred")
+    status_parser.add_argument("capture_id")
+
+    cancel_parser = subparsers.add_parser(
+        "cancel",
+        help="Compatibility command; use discard-inbox for pending files",
+    )
+    cancel_parser.add_argument("capture_id")
+
+    calendar_parser = subparsers.add_parser(
+        "calendar-outbox",
+        help="Compatibility command; Calendar automation is deferred",
+    )
+    calendar_parser.add_argument("--limit", type=int, default=20)
 
     subparsers.add_parser("rebuild-catalog", help="Regenerate catalog.md from vault files")
     subparsers.add_parser("lint-wiki", help="Create a wiki health-check report")
     subparsers.add_parser("test-notification", help="Send a macOS notification without calling OpenAI")
     subparsers.add_parser("init-topics", help="Create default topic note files")
     return parser.parse_args()
+
+
+def add_review_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--scope",
+        choices=["personal", "xhs", "all"],
+        default="personal",
+    )
+    parser.add_argument("--query", default=None, help="Only include notes matching this text")
+    parser.add_argument("--force", action="store_true", help="Replace an existing snippet")
 
 
 def resolve_date_range(raw_from: str | None, raw_to: str | None) -> tuple[dt.date, dt.date]:
@@ -960,6 +1711,37 @@ def resolve_date_range(raw_from: str | None, raw_to: str | None) -> tuple[dt.dat
         date_to = dt.date.fromisoformat(raw_to)
     else:
         date_to = date_from + dt.timedelta(days=6)
+    return date_from, date_to
+
+
+def resolve_review_range(
+    preset: str | None,
+    raw_from: str | None,
+    raw_to: str | None,
+    today: dt.date | None = None,
+) -> tuple[dt.date, dt.date]:
+    if raw_from or raw_to:
+        if not raw_from or not raw_to:
+            raise SystemExit("Custom reviews require both --from and --to.")
+        date_from = dt.date.fromisoformat(raw_from)
+        date_to = dt.date.fromisoformat(raw_to)
+    else:
+        current = today or dt.date.today()
+        if preset == "weekly":
+            date_from = current - dt.timedelta(days=current.weekday())
+            date_to = date_from + dt.timedelta(days=6)
+        elif preset == "monthly":
+            first_this_month = current.replace(day=1)
+            date_to = first_this_month - dt.timedelta(days=1)
+            date_from = date_to.replace(day=1)
+        elif preset == "yearly":
+            year = current.year - 1
+            date_from = dt.date(year, 1, 1)
+            date_to = dt.date(year, 12, 31)
+        else:
+            raise SystemExit("Pass --preset weekly|monthly|yearly or both --from and --to.")
+    if date_from > date_to:
+        raise SystemExit("--from must be on or before --to.")
     return date_from, date_to
 
 
@@ -994,19 +1776,137 @@ def main() -> None:
         discard_inbox(args.source_files, args.latest)
         return
 
-    if args.command == "weekly-review":
+    if args.command == "delete-note":
+        delete_note(args.note_file, args.dry_run)
+        return
+
+    if args.command in {"weekly-review", "weekly-snippet"}:
         date_from, date_to = resolve_date_range(args.date_from, args.date_to)
-        output_path = weekly_review(date_from, date_to)
-        print(f"Saved review: {output_path}")
+        output_path = weekly_review(
+            date_from,
+            date_to,
+            args.scope,
+            args.query,
+            args.force,
+        )
+        print(f"Saved snippet: {output_path}")
+        return
+
+    if args.command in {"monthly-review", "monthly-snippet"}:
+        date_from, date_to = resolve_review_range("monthly", None, None)
+        output_path = period_review(
+            date_from,
+            date_to,
+            "monthly",
+            args.scope,
+            args.query,
+            args.force,
+        )
+        print(f"Saved snippet: {output_path}")
+        return
+
+    if args.command == "scheduled-snippet":
+        scheduled_snippet(args.period)
+        return
+
+    if args.command == "review":
+        date_from, date_to = resolve_review_range(
+            args.preset,
+            args.date_from,
+            args.date_to,
+        )
+        label = args.label or args.preset or "custom"
+        output_path = period_review(
+            date_from,
+            date_to,
+            label,
+            args.scope,
+            args.query,
+            args.force,
+        )
+        print(f"Saved snippet: {output_path}")
         return
 
     if args.command == "search":
-        results = search_notes(args.query)
+        results = search_notes(args.query, args.scope)
         if not results:
             print(f"No matches found for: {args.query}")
             return
         for path, line_number, line in results:
                 print(f"{path_for_index(path)}:{line_number}: {line}")
+        return
+
+    if args.command == "capture":
+        source_path, source_type = capture_manifest_as_regular_source(args.manifest)
+        ingest(source_path, source_type=source_type)
+        return
+
+    if args.command == "capture-xhs":
+        text = args.text
+        if args.text_file:
+            text = args.text_file.read_text(encoding="utf-8").strip()
+        if args.video_file:
+            imported = {
+                "url": args.url,
+                "title": args.title or "",
+                "author": args.author or "",
+                "text": text or "",
+                "kind": "video",
+                "video_url": "",
+            }
+        elif text:
+            imported = {
+                "url": args.url,
+                "title": args.title or "",
+                "author": args.author or "",
+                "text": text,
+                "kind": "article",
+                "video_url": "",
+            }
+        else:
+            print("Fetching XHS note...")
+            imported = fetch_xhs_note(args.url)
+
+        if imported.get("kind") == "video":
+            if args.enqueue_only:
+                raise SystemExit(
+                    "--enqueue-only is not supported for video captures because "
+                    "the evidence bundle must be built atomically."
+                )
+            ingest_xhs_video(imported, args.video_file)
+        else:
+            capture_path = prepare_xhs_source(
+                args.url,
+                text,
+                title=args.title,
+                author=args.author,
+                imported=imported,
+            )
+            if args.enqueue_only:
+                print(f"Queued XHS capture: {capture_path}")
+            else:
+                ingest(capture_path, source_type="xhs")
+        return
+
+    if args.command == "status":
+        print(
+            "Capture state tracking is deferred in lightweight mode. "
+            "Check inbox/, processed/, daily/, xhs/, and log.md."
+        )
+        return
+
+    if args.command == "cancel":
+        print(
+            "Capture IDs are not tracked in lightweight mode. "
+            "Use discard-inbox --latest or pass the pending inbox filename."
+        )
+        return
+
+    if args.command == "calendar-outbox":
+        print(
+            "Google Calendar automation is deferred. Reminder requests remain "
+            "ordinary action items in daily notes."
+        )
         return
 
     if args.command == "rebuild-catalog":

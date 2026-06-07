@@ -10,7 +10,7 @@ iPhone Action Button
 -> Mac watcher sees the file after it finishes syncing
 -> voice_notes_ai.py transcribes/summarizes it
 -> parsed note appears in daily/
--> source moves to processed/
+-> source moves to processed/voice/
 -> catalog.md and log.md update
 ```
 

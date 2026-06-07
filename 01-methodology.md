@@ -49,9 +49,9 @@ Each voice note should produce:
 
 `topics/` records durable beliefs, repeated problems, long-term goals, risks, decisions, and next actions. AI should read these first for long-term questions.
 
-### 4. Reviews Synthesize
+### 4. Snippets Synthesize
 
-Weekly and monthly reviews should look across daily notes for:
+Weekly and monthly snippets should look across daily notes for:
 
 - repeated themes
 - conflicting ideas
@@ -73,7 +73,7 @@ Normalize
 transcribe, clean speech, create structured daily notes
 
 Synthesize
-weekly review of repeated themes, actions, and people
+weekly snippet of repeated themes, actions, and people
 
 Promote
 merge stable reusable content into topic notes

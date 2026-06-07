@@ -11,6 +11,7 @@ from unittest.mock import patch
 SRC = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(SRC))
 
+import transcription_service  # noqa: E402
 from transcription_service import transcribe  # noqa: E402
 
 
@@ -62,6 +63,29 @@ class TranscriptionServiceTests(unittest.TestCase):
                 result = transcribe(audio_path)
         self.assertEqual(result["provider"], "openai")
         self.assertEqual(result["text"], "openai fallback")
+
+    def test_timestamped_openai_request_uses_segment_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            audio = Path(directory) / "audio.mp3"
+            audio.write_bytes(b"audio")
+            response = {
+                "text": "hello",
+                "segments": [{"start": 0.0, "end": 1.2, "text": "hello"}],
+            }
+            with patch.object(
+                transcription_service,
+                "api_post_multipart",
+                return_value=response,
+            ) as request:
+                result = transcription_service.transcribe_with_openai_timed(
+                    audio,
+                    "test-key",
+                )
+
+        fields = request.call_args.kwargs["fields"]
+        self.assertEqual(fields["response_format"], "verbose_json")
+        self.assertEqual(fields["timestamp_granularities[]"], ["segment"])
+        self.assertEqual(result["segments"][0]["end"], 1.2)
 
 
 if __name__ == "__main__":

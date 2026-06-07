@@ -71,6 +71,8 @@ class AnnotationTests(unittest.TestCase):
         payload = post.call_args.kwargs["payload"]
         annotation_schema = payload["text"]["format"]["schema"]["properties"]["annotations"]
         self.assertEqual(annotation_schema["maxItems"], 3)
+        self.assertIn("USER.md self-alias hint", payload["input"])
+        self.assertIn('label it "unsure"', payload["input"])
 
 
 if __name__ == "__main__":

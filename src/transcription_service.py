@@ -90,19 +90,21 @@ def read_source_bytes(file_path: Path) -> bytes:
 
 def api_post_multipart(
     url: str,
-    fields: dict[str, str],
+    fields: dict[str, str | list[str]],
     file_path: Path,
     api_key: str,
 ) -> dict:
     boundary = "----VoiceNotesAIBoundary"
     body = bytearray()
-    for key, value in fields.items():
-        body.extend(f"--{boundary}\r\n".encode())
-        body.extend(
-            f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode()
-        )
-        body.extend(value.encode())
-        body.extend(b"\r\n")
+    for key, raw_value in fields.items():
+        values = raw_value if isinstance(raw_value, list) else [raw_value]
+        for value in values:
+            body.extend(f"--{boundary}\r\n".encode())
+            body.extend(
+                f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode()
+            )
+            body.extend(value.encode())
+            body.extend(b"\r\n")
     body.extend(f"--{boundary}\r\n".encode())
     body.extend(
         (
@@ -182,12 +184,19 @@ def transcribe_with_local_command(audio_path: Path) -> dict | None:
         payload = json.loads(output)
         text = str(payload.get("text", "")).strip()
         model = payload.get("model")
+        segments = payload.get("segments", [])
     except json.JSONDecodeError:
         text = output
         model = None
+        segments = []
     if not text:
         raise RuntimeError("Local transcription command returned no text.")
-    return {"text": text, "provider": "local-command", "model": model}
+    return {
+        "text": text,
+        "provider": "local-command",
+        "model": model,
+        "segments": segments if isinstance(segments, list) else [],
+    }
 
 
 def transcribe_with_openai(audio_path: Path, api_key: str) -> dict:
@@ -205,6 +214,38 @@ def transcribe_with_openai(audio_path: Path, api_key: str) -> dict:
     if not text:
         raise RuntimeError("Transcription response did not include text.")
     return {"text": text, "provider": "openai", "model": model}
+
+
+def transcribe_with_openai_timed(audio_path: Path, api_key: str) -> dict:
+    model = os.environ.get("OPENAI_TIMESTAMP_TRANSCRIBE_MODEL", "whisper-1")
+    response = api_post_multipart(
+        "https://api.openai.com/v1/audio/transcriptions",
+        fields={
+            "model": model,
+            "response_format": "verbose_json",
+            "timestamp_granularities[]": ["segment"],
+        },
+        file_path=audio_path,
+        api_key=api_key,
+    )
+    text = str(response.get("text", "")).strip()
+    segments = [
+        {
+            "start": float(segment.get("start", 0)),
+            "end": float(segment.get("end", 0)),
+            "text": str(segment.get("text", "")).strip(),
+        }
+        for segment in response.get("segments", [])
+        if str(segment.get("text", "")).strip()
+    ]
+    if not text:
+        raise RuntimeError("Timestamped transcription returned no text.")
+    return {
+        "text": text,
+        "segments": segments,
+        "provider": "openai",
+        "model": model,
+    }
 
 
 def transcribe(audio_path: Path, api_key: str | None = None) -> dict:
@@ -237,6 +278,45 @@ def transcribe(audio_path: Path, api_key: str | None = None) -> dict:
             raise RuntimeError(
                 f"Local transcription failed: {local_error}; "
                 f"OpenAI transcription failed: {exc}"
+            ) from exc
+        raise
+
+
+def transcribe_timed(audio_path: Path, api_key: str | None = None) -> dict:
+    load_dotenv()
+    source = audio_path.expanduser().resolve()
+    if not source.exists():
+        raise FileNotFoundError(f"Audio file not found: {source}")
+
+    local_error: Exception | None = None
+    try:
+        local_result = transcribe_with_local_command(source)
+        if local_result:
+            return {
+                **local_result,
+                "segments": local_result.get("segments", []),
+            }
+    except Exception as exc:
+        local_error = exc
+
+    resolved_key = (api_key or os.environ.get("OPENAI_API_KEY", "")).strip()
+    if not resolved_key:
+        if local_error:
+            raise RuntimeError(
+                "Local timestamped transcription failed and OpenAI is not "
+                f"configured: {local_error}"
+            ) from local_error
+        raise RuntimeError(
+            "Timestamped transcription requires OPENAI_API_KEY or a local "
+            "transcriber that returns segments."
+        )
+    try:
+        return transcribe_with_openai_timed(source, resolved_key)
+    except Exception as exc:
+        if local_error:
+            raise RuntimeError(
+                f"Local timestamped transcription failed: {local_error}; "
+                f"OpenAI timestamped transcription failed: {exc}"
             ) from exc
         raise
 

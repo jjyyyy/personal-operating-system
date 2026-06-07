@@ -13,7 +13,7 @@ The goal is not to pile up recordings in a searchable archive. The goal is to tu
 - [[docs/action-button-flow|Action Button Flow]]
 - [[docs/openclaw-integration|OpenClaw Integration]]
 - [[docs/proposals/2026-06-07-ai-annotations-and-agent-briefing|AI Annotations & Agent Briefing Proposal]]
-- [[docs/proposals/2026-06-07-unified-inbox-reminders-xhs|Unified Inbox, Reminders & XHS Proposal]]
+- [[docs/proposals/2026-06-07-unified-inbox-reminders-xhs|Why the Unified Inbox Platform Was Reduced]]
 - [[01-methodology|Methodology]]
 - [[02-operating-system|Operating System]]
 - [[topics/career|Career]]
@@ -30,7 +30,7 @@ The goal is not to pile up recordings in a searchable archive. The goal is to tu
 raw audio
 -> transcript
 -> daily voice note
--> weekly review
+-> weekly snippet
 -> topic note
 -> durable personal wiki
 ```
@@ -38,9 +38,11 @@ raw audio
 ## Directory Map
 
 - `inbox/`: unprocessed recordings or transcripts
-- `processed/`: archived source files
-- `daily/`: structured individual notes
-- `reviews/`: weekly/monthly reviews
+- `processed/`: archived source files grouped by voice, XHS, or bot
+- `daily/`: personal voice notes and reflections
+- `xhs/`: imported XHS knowledge
+- `snippets/`: weekly/monthly synthesis snippets
+- `reviews/`: lint and maintenance reports
 - `topics/`: long-term topic notes
 - `docs/`: setup notes
 - `automation/`: optional background watcher template
@@ -55,8 +57,8 @@ raw audio
 ## Weekly Maintenance
 
 1. Process this week's recordings into `daily/` notes.
-2. Create one weekly review in `reviews/`.
-3. Extract durable themes from the weekly review and update `topics/`.
+2. Create one weekly snippet in `snippets/`.
+3. Extract durable themes from the weekly snippet and update `topics/`.
 4. Move concrete action items into the real task/calendar system.
 5. Run a wiki lint pass periodically.
 6. Remove duplicate, stale, or low-value temporary content.

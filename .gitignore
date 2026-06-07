@@ -21,14 +21,36 @@ inbox/*
 !inbox/.gitkeep
 processed/*
 !processed/.gitkeep
+!processed/voice/
+processed/voice/*
+!processed/voice/.gitkeep
+!processed/xhs/
+processed/xhs/*
+!processed/xhs/.gitkeep
+!processed/bot/
+processed/bot/*
+!processed/bot/.gitkeep
 discarded/*
 !discarded/.gitkeep
+!discarded/voice/
+discarded/voice/*
+!discarded/voice/.gitkeep
+!discarded/xhs/
+discarded/xhs/*
+!discarded/xhs/.gitkeep
+!discarded/bot/
+discarded/bot/*
+!discarded/bot/.gitkeep
 
 # Generated/private knowledge content
 daily/*
 !daily/.gitkeep
+xhs/*
+!xhs/.gitkeep
 topics/*
 !topics/.gitkeep
+snippets/*
+!snippets/.gitkeep
 reviews/*
 !reviews/.gitkeep
 index.json

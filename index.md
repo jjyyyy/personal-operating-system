@@ -27,26 +27,31 @@ When answering or modifying the vault, read in this order:
 2. `AGENTS.md`: operating rules and schema.
 3. `00-home.md`: human-facing vault map.
 4. Relevant `topics/` files: durable topic memory.
-5. Recent `reviews/` files: weekly/monthly synthesis.
-6. Relevant `daily/` files: individual notes.
-7. `Raw Transcript` only when details are needed.
+5. Recent `snippets/` files: weekly/monthly synthesis.
+6. Recent `reviews/` files: lint and maintenance reports.
+7. Relevant `daily/` files: personal notes and reflections.
+8. Relevant `xhs/` files: imported external knowledge.
+9. `Raw Transcript` only when details are needed.
 
 Use `catalog.md` only when broad discovery is needed. It is intentionally separate from this file so `index.md` stays small enough for simple queries.
 
 ## Directory Map
 
 - `inbox/`: unprocessed audio files or transcripts.
-- `processed/`: archived source files after ingest.
+- `processed/`: archived source files grouped under `voice/`, `xhs/`, and `bot/`.
 - `discarded/`: accidental inbox recordings moved out of processing.
-- `daily/`: structured Markdown notes for individual notes.
-- `reviews/`: weekly/monthly reviews.
+- `daily/`: structured personal voice notes and reflections.
+- `xhs/`: imported XHS knowledge, separate from personal input.
+- `snippets/`: weekly/monthly synthesis snippets.
+- `reviews/`: lint and maintenance reports.
 - `topics/`: long-term topic notes. Prefer updating these over creating many new files.
 - `templates/`: Markdown templates.
 - `prompts/`: reusable AI prompts.
 - `docs/action-button-flow.md`: Action Button to parsed note setup.
+- `docs/xhs-share-capture.md`: Share Sheet / Shortcut flow for XHS links.
 - `docs/openclaw-integration.md`: OpenClaw agent connection and security notes.
 - `docs/proposals/`: detailed proposals that are not yet implemented.
-- `docs/proposals/2026-06-07-unified-inbox-reminders-xhs.md`: design-only plan for unified voice, XHS, bot, reminders, Calendar, and embeddings.
+- `docs/proposals/2026-06-07-unified-inbox-reminders-xhs.md`: archived decision record explaining why the multi-source platform direction was reduced.
 - `automation/`: optional LaunchAgent template for `watch-inbox`.
 - `src/voice_notes_ai.py`: local processing script.
 - `index.json`: machine-readable daily-note index.
@@ -84,6 +89,13 @@ Discard the newest accidental inbox capture:
 python3 src/voice_notes_ai.py discard-inbox --latest
 ```
 
+Delete a generated note and its archived source:
+
+```bash
+python3 src/voice_notes_ai.py delete-note xhs/your-note.md --dry-run
+python3 src/voice_notes_ai.py delete-note xhs/your-note.md
+```
+
 Process one file:
 
 ```bash
@@ -100,14 +112,37 @@ python3 src/voice_notes_ai.py ingest inbox/your-note.m4a --date 2026-06-06
 Search the vault:
 
 ```bash
-python3 src/voice_notes_ai.py search 网球
-python3 src/voice_notes_ai.py search 手腕
+python3 src/voice_notes_ai.py search 网球 --scope personal
+python3 src/voice_notes_ai.py search 网球 --scope xhs
+python3 src/voice_notes_ai.py search 网球 --scope all
 ```
 
-Create a weekly review:
+Import a copied XHS share link:
 
 ```bash
-python3 src/voice_notes_ai.py weekly-review
+python3 src/voice_notes_ai.py capture-xhs --url "https://xhslink.com/..."
+```
+
+Or save shared XHS text into the inbox or `inbox/xhs/` as `xhs-share-*.txt`; see
+`docs/xhs-share-capture.md`.
+
+If a protected video cannot be downloaded directly:
+
+```bash
+python3 src/voice_notes_ai.py capture-xhs --url "https://xhslink.com/..." --video-file "/path/to/video.mp4"
+```
+
+Create a weekly snippet:
+
+```bash
+python3 src/voice_notes_ai.py weekly-snippet
+```
+
+Create monthly or custom snippets:
+
+```bash
+python3 src/voice_notes_ai.py monthly-snippet
+python3 src/voice_notes_ai.py review --from 2026-01-01 --to 2026-03-31 --label project-quarter --query "project name"
 ```
 
 Regenerate the broad catalog:
@@ -136,6 +171,8 @@ python3 src/voice_notes_ai.py test-notification
 - Preserve existing topic-note judgments. Add only new evidence, patterns, actions, or questions.
 - Action items must be concrete and executable. Do not turn vague ideas into tasks.
 - Mark uncertain classification as `unsure`.
+- Keep personal captures (`source: voice`) distinguishable from imported XHS
+  knowledge (`source: xhs`). Use scoped search when the distinction matters.
 - When answering questions, start with the conclusion, cite relevant notes, and distinguish evidence from inference.
 
 ## Current State
@@ -147,10 +184,16 @@ iPhone Voice Memo
 -> inbox/
 -> process-inbox / watch-inbox / ingest
 -> daily/
--> processed/
+-> processed/voice/
 -> catalog.md / log.md
 -> topics/
 -> Obsidian search and AI Q&A
+```
+
+XHS imports follow the parallel external-knowledge path:
+
+```text
+XHS share link -> xhs/ + processed/xhs/
 ```
 
 Current promoted topics:
@@ -161,7 +204,7 @@ Current promoted topics:
 ## Next Good Steps
 
 - Keep processing new recordings.
-- Generate a weekly review once enough notes accumulate.
-- Use weekly reviews to update or create topic notes.
+- Generate a weekly snippet once enough notes accumulate.
+- Use weekly snippets to update or create topic notes.
 - Run `lint-wiki` periodically to catch missing links, stale claims, and promotion candidates.
 - If tennis notes keep growing, continue expanding `topics/网球.md` or create a separate `topics/tennis.md`.

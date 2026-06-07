@@ -71,7 +71,7 @@ python3 src/voice_notes_ai.py rebuild-catalog
 Create a weekly synthesis:
 
 ```bash
-python3 src/voice_notes_ai.py weekly-review
+python3 src/voice_notes_ai.py weekly-snippet
 ```
 
 Then ask AI to:
@@ -111,7 +111,7 @@ When asking AI a question, prefer this order:
 
 1. Files explicitly mentioned in the question.
 2. Relevant files in `topics/`.
-3. Recent weekly/monthly reviews in `reviews/`.
+3. Recent weekly/monthly snippets in `snippets/`.
 4. Relevant dated notes or keywords in `daily/`.
 5. `Raw Transcript` only when needed.
 
