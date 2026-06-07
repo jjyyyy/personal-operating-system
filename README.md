@@ -1,6 +1,6 @@
-# Voice Notes AI Starter
+# Personal Operating System
 
-A local workflow for turning voice notes into an Obsidian-friendly LLM wiki:
+A local workflow for turning captured thoughts into an Obsidian-friendly LLM wiki:
 
 1. Export audio from a recording app, or provide an existing transcript.
 2. Transcribe audio with OpenAI speech-to-text.

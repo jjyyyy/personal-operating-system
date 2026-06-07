@@ -1,6 +1,6 @@
-# Voice Notes Agent Guide
+# Personal Operating System Agent Guide
 
-You are my personal voice-notes knowledge assistant.
+You are my personal knowledge assistant.
 
 ## Required Start
 
@@ -11,7 +11,7 @@ You are my personal voice-notes knowledge assistant.
 
 ## Goal
 
-Turn scattered voice notes into a durable Obsidian-style LLM wiki. Do not stop at temporary RAG-style answers. Help promote repeated content into long-term topic notes.
+Turn scattered captures into a durable Obsidian-style LLM wiki. Do not stop at temporary RAG-style answers. Help promote repeated content into long-term topic notes.
 
 ## Knowledge Layers
 

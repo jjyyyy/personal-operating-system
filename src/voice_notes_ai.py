@@ -73,7 +73,7 @@ def ensure_dirs() -> None:
     if not INDEX_FILE.exists():
         INDEX_FILE.write_text("[]\n", encoding="utf-8")
     if not LOG_FILE.exists():
-        LOG_FILE.write_text("# Voice Notes Log\n\n", encoding="utf-8")
+        LOG_FILE.write_text("# Personal Operating System Log\n\n", encoding="utf-8")
 
 
 def require_api_key() -> str:
@@ -147,7 +147,7 @@ def notifications_enabled() -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
-def send_notification(message: str, title: str = "Voice Notes") -> bool:
+def send_notification(message: str, title: str = "Personal Operating System") -> bool:
     if not notifications_enabled():
         return False
 
@@ -486,7 +486,7 @@ def rebuild_catalog() -> Path:
     review_files = sorted(REVIEWS_DIR.glob("*.md"), key=lambda path: path.name.lower())
 
     lines = [
-        "# Voice Notes Catalog",
+        "# Personal Operating System Catalog",
         "",
         "Generated content catalog. Keep `index.md` small; read this file only for broad discovery.",
         "",
@@ -729,7 +729,7 @@ def weekly_review(date_from: dt.date, date_to: dt.date) -> Path:
     model = os.environ.get("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini")
     prompt = textwrap.dedent(
         f"""
-        Read the following weekly voice notes and write a weekly review in Markdown.
+        Read the following weekly notes and write a weekly review in Markdown.
 
         Include:
         - Top themes
@@ -1021,7 +1021,7 @@ def main() -> None:
         return
 
     if args.command == "test-notification":
-        if send_notification("Notifications are working.", "Voice Notes"):
+        if send_notification("Notifications are working.", "Personal Operating System"):
             print("Notification test sent.")
         else:
             raise SystemExit("Notification test failed.")

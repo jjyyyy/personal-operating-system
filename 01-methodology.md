@@ -1,4 +1,4 @@
-# LLM Wiki For Voice Notes
+# LLM Wiki For Personal Operating System
 
 ## Core Idea
 
@@ -8,7 +8,7 @@ Voice notes work better as an LLM wiki: each recording becomes a structured dail
 
 For this vault, `index.md` stays intentionally compact. Use `catalog.md` only for broad discovery, and use `log.md` when the timeline of recent ingests, reviews, or lint passes matters.
 
-## Why Voice Notes Fit This Method
+## Why Captures Fit This Method
 
 Voice notes tend to be:
 

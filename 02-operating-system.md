@@ -1,4 +1,4 @@
-# Voice Notes Operating System
+# Personal Operating System
 
 ## Per Voice Note
 

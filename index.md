@@ -1,4 +1,4 @@
-# Voice Notes AI Index
+# Personal Operating System Index
 
 Primary context file for any AI assistant working in this vault.
 

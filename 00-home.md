@@ -1,8 +1,8 @@
-# Voice Notes Wiki
+# Personal Operating System
 
-Human-facing entry point for this personal voice-notes knowledge base.
+Human-facing entry point for this personal knowledge base.
 
-The goal is not to pile up recordings in a searchable archive. The goal is to turn everyday voice notes into reusable knowledge pages, decision records, action items, and long-term themes.
+The goal is not to pile up recordings in a searchable archive. The goal is to turn everyday captures into reusable knowledge pages, decision records, action items, and long-term themes.
 
 ## Quick Links
 
