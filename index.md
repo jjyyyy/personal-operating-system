@@ -131,6 +131,12 @@ Automatic inbox XHS imports are paused unless `VOICE_NOTES_AUTO_XHS_IMPORTS=1`
 is set. Paused XHS share files move to `deferred/xhs/` without fetching the
 link.
 
+Process at most one deferred XHS share after enabling the safety switch:
+
+```bash
+VOICE_NOTES_AUTO_XHS_IMPORTS=1 python3 src/voice_notes_ai.py process-deferred-xhs --limit 1
+```
+
 If a protected video cannot be downloaded directly:
 
 ```bash

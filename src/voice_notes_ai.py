@@ -54,9 +54,11 @@ REVIEWS_DIR = VOICE_ROOT / "reviews"
 SNIPPETS_DIR = VOICE_ROOT / "snippets"
 TEMPLATES_DIR = VOICE_ROOT / "templates"
 LOGS_DIR = VOICE_ROOT / "logs"
+STATE_DIR = VOICE_ROOT / "state"
 INDEX_FILE = VOICE_ROOT / "index.json"
 CATALOG_FILE = VOICE_ROOT / "catalog.md"
 LOG_FILE = VOICE_ROOT / "log.md"
+XHS_AUTO_STATE_FILE = STATE_DIR / "xhs-auto-imports.json"
 TRANSCRIPT_EXTENSIONS = {".txt", ".md", ".markdown"}
 AUDIO_EXTENSIONS = {".m4a", ".mp3", ".mp4", ".mpeg", ".mpga", ".wav", ".webm"}
 TEMP_SOURCE_SUFFIXES = {".icloud", ".download", ".part", ".tmp", ".crdownload"}
@@ -83,6 +85,7 @@ def ensure_dirs() -> None:
         SNIPPETS_DIR,
         TEMPLATES_DIR,
         LOGS_DIR,
+        STATE_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
     for root in [INBOX_DIR, PROCESSED_DIR, DISCARDED_DIR, DEFERRED_DIR]:
@@ -809,6 +812,93 @@ def auto_xhs_imports_enabled() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
+def state_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def xhs_auto_min_interval_seconds() -> int:
+    return max(0, env_int("VOICE_NOTES_XHS_AUTO_MIN_INTERVAL_SECONDS", 21600))
+
+
+def xhs_auto_max_per_day() -> int:
+    return max(0, env_int("VOICE_NOTES_XHS_AUTO_MAX_PER_DAY", 2))
+
+
+def read_json_file(path: Path, fallback: dict) -> dict:
+    if not path.exists():
+        return fallback
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return fallback
+
+
+def write_json_file(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f"{path.suffix}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def xhs_auto_import_check(now: dt.datetime | None = None) -> tuple[bool, str]:
+    if not auto_xhs_imports_enabled():
+        return False, "Automatic XHS imports are paused after account warning."
+
+    current = now or dt.datetime.now(dt.timezone.utc)
+    state = read_json_file(XHS_AUTO_STATE_FILE, {})
+    today = current.date().isoformat()
+    count = state_int(state.get("count", 0)) if state.get("date") == today else 0
+    max_per_day = xhs_auto_max_per_day()
+    if max_per_day <= 0:
+        return False, "Automatic XHS imports are disabled by daily limit."
+    if count >= max_per_day:
+        return False, f"Automatic XHS daily limit reached ({count}/{max_per_day})."
+
+    last_success = state.get("last_success_at")
+    if last_success:
+        try:
+            last_dt = dt.datetime.fromisoformat(str(last_success))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=dt.timezone.utc)
+            elapsed = (current - last_dt).total_seconds()
+        except ValueError:
+            elapsed = None
+        min_interval = xhs_auto_min_interval_seconds()
+        if elapsed is not None and elapsed < min_interval:
+            remaining = int(min_interval - elapsed)
+            return False, f"Automatic XHS cooldown active for {remaining}s."
+
+    return True, "Automatic XHS import allowed."
+
+
+def record_xhs_auto_import(now: dt.datetime | None = None) -> None:
+    current = now or dt.datetime.now(dt.timezone.utc)
+    state = read_json_file(XHS_AUTO_STATE_FILE, {})
+    today = current.date().isoformat()
+    count = state_int(state.get("count", 0)) if state.get("date") == today else 0
+    write_json_file(
+        XHS_AUTO_STATE_FILE,
+        {
+            "date": today,
+            "count": count + 1,
+            "last_success_at": current.isoformat(),
+        },
+    )
+
+
 def xhs_source_text(imported: dict) -> str:
     source_lines = [f"Source URL: {imported['url']}"]
     if imported.get("title"):
@@ -1117,22 +1207,41 @@ def ingest_xhs_share_source(source_path: Path) -> Path:
     return ingest(source_path, source_type="xhs")
 
 
+def path_is_under(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def defer_xhs_share(source_path: Path, reason: str) -> Path:
+    if path_is_under(source_path, DEFERRED_DIR / "xhs"):
+        print(f"XHS share already deferred: {source_path} ({reason})")
+        return source_path
+    deferred_path = move_to_deferred(source_path, "xhs", reason)
+    print(f"Deferred XHS share: {deferred_path} ({reason})")
+    send_notification(
+        f"{source_path.name} moved to deferred/xhs",
+        "XHS share deferred",
+    )
+    return deferred_path
+
+
+def process_xhs_share_with_safety(source_path: Path) -> bool:
+    allowed, reason = xhs_auto_import_check()
+    if not allowed:
+        defer_xhs_share(source_path, reason)
+        return True
+    ingest_xhs_share_source(source_path)
+    record_xhs_auto_import()
+    return True
+
+
 def process_source_safely(source_path: Path, note_date: dt.date | None = None) -> bool:
     try:
         if is_xhs_share_source(source_path):
-            if not auto_xhs_imports_enabled():
-                reason = "Automatic XHS imports are paused after account warning."
-                deferred_path = move_to_deferred(source_path, "xhs", reason)
-                print(
-                    "Deferred XHS share while automatic XHS imports are paused: "
-                    f"{deferred_path}"
-                )
-                send_notification(
-                    f"{source_path.name} moved to deferred/xhs",
-                    "XHS share deferred",
-                )
-                return True
-            ingest_xhs_share_source(source_path)
+            process_xhs_share_with_safety(source_path)
         else:
             ingest(source_path, note_date)
         return True
@@ -1177,6 +1286,61 @@ def ready_inbox_sources(settle_seconds: int = 0) -> list[Path]:
     return sorted(
         path for path in inbox_sources() if is_source_ready(path, settle_seconds)
     )
+
+
+def deferred_sources(source_type: str = "xhs") -> list[Path]:
+    ensure_dirs()
+    source_dir = DEFERRED_DIR / normalized_source_type(source_type)
+    return sorted(
+        path
+        for path in source_dir.iterdir()
+        if path.is_file() and is_supported_source(path)
+    )
+
+
+def process_deferred_xhs(limit: int = 1) -> int:
+    if limit <= 0:
+        raise SystemExit("--limit must be at least 1.")
+    processed = 0
+    for source_path in deferred_sources("xhs"):
+        allowed, reason = xhs_auto_import_check()
+        if not allowed:
+            print(f"Deferred XHS processing paused: {reason}")
+            break
+        try:
+            ingest_xhs_share_source(source_path)
+            record_xhs_auto_import()
+            processed += 1
+        except SystemExit as exc:
+            print(f"Failed to process deferred XHS share {source_path.name}: {exc}")
+            append_log(
+                "error",
+                source_path.name,
+                [
+                    f"- Source: {path_for_index(source_path)}",
+                    f"- Error: {exc}",
+                ],
+            )
+            break
+        except Exception as exc:
+            error_message = f"{type(exc).__name__}: {exc}"
+            print(f"Failed to process deferred XHS share {source_path.name}: {error_message}")
+            append_log(
+                "error",
+                source_path.name,
+                [
+                    f"- Source: {path_for_index(source_path)}",
+                    f"- Error: {error_message}",
+                ],
+            )
+            break
+        if processed >= limit:
+            break
+    if processed == 0:
+        print("No deferred XHS shares processed.")
+    else:
+        print(f"Processed deferred XHS shares: {processed}")
+    return processed
 
 
 def resolve_inbox_source(raw_path: Path) -> Path:
@@ -1648,6 +1812,12 @@ def parse_args() -> argparse.Namespace:
     discard_parser.add_argument("source_files", nargs="*", type=Path)
     discard_parser.add_argument("--latest", action="store_true", help="Discard the newest supported inbox file")
 
+    deferred_xhs_parser = subparsers.add_parser(
+        "process-deferred-xhs",
+        help="Process a limited number of deferred XHS shares when safety gates allow it",
+    )
+    deferred_xhs_parser.add_argument("--limit", type=int, default=1)
+
     delete_parser = subparsers.add_parser("delete-note", help="Delete an indexed note and its archived source")
     delete_parser.add_argument("note_file", type=Path)
     delete_parser.add_argument("--dry-run", action="store_true", help="Show what would be deleted")
@@ -1833,6 +2003,10 @@ def main() -> None:
 
     if args.command == "discard-inbox":
         discard_inbox(args.source_files, args.latest)
+        return
+
+    if args.command == "process-deferred-xhs":
+        process_deferred_xhs(args.limit)
         return
 
     if args.command == "delete-note":

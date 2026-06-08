@@ -170,6 +170,18 @@ reviewed. In that state, `xhs-share-*.txt` files are moved to `deferred/xhs/`
 without opening the link. Set `VOICE_NOTES_AUTO_XHS_IMPORTS=1` only when you
 explicitly want the watched inbox to fetch Xiaohongshu links again.
 
+The safer resume path is to process the deferred queue one share at a time:
+
+```bash
+VOICE_NOTES_AUTO_XHS_IMPORTS=1 python3 src/voice_notes_ai.py process-deferred-xhs --limit 1
+```
+
+By default this command allows at most two automatic XHS imports per day, with
+a six-hour cooldown between successful imports. Override those guardrails with
+`VOICE_NOTES_XHS_AUTO_MAX_PER_DAY` and
+`VOICE_NOTES_XHS_AUTO_MIN_INTERVAL_SECONDS` only when you mean to. Runtime
+throttle state lives in ignored `state/xhs-auto-imports.json`.
+
 Short `xhslink.com` links are followed automatically. If the public page is
 hidden behind login or platform protection, provide the shared text explicitly:
 

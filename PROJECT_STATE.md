@@ -42,6 +42,9 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
   stopped.
 - Automatic inbox XHS imports are now opt-in via
   `VOICE_NOTES_AUTO_XHS_IMPORTS=1`; paused share files move to `deferred/xhs/`.
+- Safe XHS resume path is now the deferred queue:
+  `VOICE_NOTES_AUTO_XHS_IMPORTS=1 python3 src/voice_notes_ai.py process-deferred-xhs --limit 1`.
+  Defaults are two automatic imports per day and a six-hour cooldown.
 
 ## Current Risks
 
@@ -51,7 +54,7 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
   `topics/ideas.md`, and `topics/system-design.md`.
 - Protected XHS media still needs a manual `--video-file`.
 - Do not restart Xiaohongshu monitor/MCP automation without revisiting account
-  risk. Voice-note XHS share imports should be manual until this is settled.
+  risk. Prefer one-at-a-time deferred XHS imports until this is settled.
 - Cron may need macOS Full Disk Access for iCloud inbox folders. Snippet cron is
   intentionally daily catch-up because this is a laptop and may sleep through a
   single weekly/monthly time.
@@ -66,3 +69,6 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
    ASR ambiguity, and primary topics stay separate.
 4. Preserve the `daily/` vs `xhs/` source boundary in snippets, search, and
    answers.
+5. Manually test one deferred XHS import after explicit approval, then decide
+   whether cron should run `process-deferred-xhs --limit 1` with the safety
+   switch.

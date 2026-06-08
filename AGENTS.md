@@ -84,6 +84,7 @@ python3 src/voice_notes_ai.py review --from 2026-01-01 --to 2026-03-31 --label p
 python3 src/voice_notes_ai.py rebuild-catalog
 python3 src/voice_notes_ai.py lint-wiki
 python3 src/voice_notes_ai.py capture-xhs --url URL
+VOICE_NOTES_AUTO_XHS_IMPORTS=1 python3 src/voice_notes_ai.py process-deferred-xhs --limit 1
 python3 src/voice_notes_ai.py search QUERY --scope personal
 python3 src/voice_notes_ai.py search QUERY --scope xhs
 python3 src/voice_notes_ai.py search QUERY --scope all

@@ -11,6 +11,8 @@ htmlcov/
 .DS_Store
 .openclaw/
 logs/*.log
+state/*
+!state/.gitkeep
 
 # Local editor and agent state
 .obsidian/

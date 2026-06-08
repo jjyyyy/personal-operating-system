@@ -45,11 +45,16 @@ python3 src/voice_notes_ai.py capture-xhs --url "http://xhslink.com/o/9T9AbRY5cG
 Automatic inbox imports are paused by default while Xiaohongshu account-risk is
 being reviewed. With the default configuration, `xhs-share-*.txt` files are
 moved to `deferred/xhs/` without opening the Xiaohongshu link. To explicitly
-re-enable automatic inbox imports later, set:
+process one deferred share through the existing importer, run:
 
 ```bash
-VOICE_NOTES_AUTO_XHS_IMPORTS=1
+VOICE_NOTES_AUTO_XHS_IMPORTS=1 python3 src/voice_notes_ai.py process-deferred-xhs --limit 1
 ```
+
+This is the preferred near-term resume path. It does not require restarting the
+Xiaohongshu profile monitor or MCP container. The default safety limits are two
+automatic imports per day and a six-hour cooldown between successful imports.
+The private throttle file is `state/xhs-auto-imports.json`.
 
 ## Behavior
 

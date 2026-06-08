@@ -157,9 +157,11 @@ class XHSImportTests(unittest.TestCase):
                 "SNIPPETS_DIR": root / "snippets",
                 "TEMPLATES_DIR": root / "templates",
                 "LOGS_DIR": root / "logs",
+                "STATE_DIR": root / "state",
                 "INDEX_FILE": root / "index.json",
                 "CATALOG_FILE": root / "catalog.md",
                 "LOG_FILE": root / "log.md",
+                "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
             with ExitStack() as stack:
                 for name, value in paths.items():
@@ -238,9 +240,11 @@ class XHSImportTests(unittest.TestCase):
                 "SNIPPETS_DIR": root / "snippets",
                 "TEMPLATES_DIR": root / "templates",
                 "LOGS_DIR": root / "logs",
+                "STATE_DIR": root / "state",
                 "INDEX_FILE": root / "index.json",
                 "CATALOG_FILE": root / "catalog.md",
                 "LOG_FILE": root / "log.md",
+                "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
             with ExitStack() as stack:
                 for name, value in paths.items():
@@ -320,9 +324,11 @@ class XHSImportTests(unittest.TestCase):
                 "SNIPPETS_DIR": root / "snippets",
                 "TEMPLATES_DIR": root / "templates",
                 "LOGS_DIR": root / "logs",
+                "STATE_DIR": root / "state",
                 "INDEX_FILE": root / "index.json",
                 "CATALOG_FILE": root / "catalog.md",
                 "LOG_FILE": root / "log.md",
+                "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
 
             def fake_download(_url: str, destination: Path, referer: str = "") -> None:
@@ -420,9 +426,11 @@ class XHSImportTests(unittest.TestCase):
                 "SNIPPETS_DIR": root / "snippets",
                 "TEMPLATES_DIR": root / "templates",
                 "LOGS_DIR": root / "logs",
+                "STATE_DIR": root / "state",
                 "INDEX_FILE": root / "index.json",
                 "CATALOG_FILE": root / "catalog.md",
                 "LOG_FILE": root / "log.md",
+                "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
             with ExitStack() as stack:
                 for name, value in paths.items():
@@ -447,6 +455,156 @@ class XHSImportTests(unittest.TestCase):
             self.assertTrue(ok)
             self.assertFalse(share.exists())
             self.assertTrue(deferred.exists())
+
+    def test_process_deferred_xhs_skips_when_auto_imports_are_paused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            share = root / "deferred" / "xhs" / "xhs-share-20260608-060432.txt"
+            share.parent.mkdir(parents=True)
+            share.write_text("小红书分享 http://xhslink.com/o/example", encoding="utf-8")
+            paths = {
+                "VOICE_ROOT": root,
+                "INBOX_DIR": root / "inbox",
+                "PROCESSED_DIR": root / "processed",
+                "DISCARDED_DIR": root / "discarded",
+                "DEFERRED_DIR": root / "deferred",
+                "DAILY_DIR": root / "daily",
+                "XHS_DIR": root / "xhs",
+                "TOPICS_DIR": root / "topics",
+                "REVIEWS_DIR": root / "reviews",
+                "SNIPPETS_DIR": root / "snippets",
+                "TEMPLATES_DIR": root / "templates",
+                "LOGS_DIR": root / "logs",
+                "STATE_DIR": root / "state",
+                "INDEX_FILE": root / "index.json",
+                "CATALOG_FILE": root / "catalog.md",
+                "LOG_FILE": root / "log.md",
+                "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
+            }
+            with ExitStack() as stack:
+                for name, value in paths.items():
+                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                stack.enter_context(
+                    patch.dict(
+                        voice_notes_ai.os.environ,
+                        {"VOICE_NOTES_AUTO_XHS_IMPORTS": ""},
+                    )
+                )
+                stack.enter_context(
+                    patch.object(
+                        voice_notes_ai,
+                        "fetch_xhs_note",
+                        side_effect=AssertionError("should not fetch XHS"),
+                    )
+                )
+                processed = voice_notes_ai.process_deferred_xhs(limit=1)
+
+            self.assertEqual(processed, 0)
+            self.assertTrue(share.exists())
+
+    def test_xhs_auto_import_check_uses_conservative_defaults_for_bad_env(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {
+                "STATE_DIR": root / "state",
+                "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
+            }
+            with ExitStack() as stack:
+                for name, value in paths.items():
+                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                stack.enter_context(
+                    patch.dict(
+                        voice_notes_ai.os.environ,
+                        {
+                            "VOICE_NOTES_AUTO_XHS_IMPORTS": "1",
+                            "VOICE_NOTES_XHS_AUTO_MAX_PER_DAY": "not-a-number",
+                            "VOICE_NOTES_XHS_AUTO_MIN_INTERVAL_SECONDS": "also-bad",
+                        },
+                    )
+                )
+                allowed, reason = voice_notes_ai.xhs_auto_import_check()
+
+            self.assertTrue(allowed)
+            self.assertEqual(reason, "Automatic XHS import allowed.")
+
+    def test_process_deferred_xhs_honors_daily_limit(self) -> None:
+        structured = {
+            "date": "2026-06-08",
+            "title": "分享来的知识",
+            "source": "xhs",
+            "topics": ["AI"],
+            "summary": "从分享链接导入的小红书知识。",
+            "action_items": [],
+            "people": [],
+            "annotations": [],
+            "raw_transcript": "",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            deferred = root / "deferred" / "xhs"
+            deferred.mkdir(parents=True)
+            first = deferred / "xhs-share-1.txt"
+            second = deferred / "xhs-share-2.txt"
+            first.write_text("小红书分享 http://xhslink.com/o/first", encoding="utf-8")
+            second.write_text("小红书分享 http://xhslink.com/o/second", encoding="utf-8")
+            paths = {
+                "VOICE_ROOT": root,
+                "INBOX_DIR": root / "inbox",
+                "PROCESSED_DIR": root / "processed",
+                "DISCARDED_DIR": root / "discarded",
+                "DEFERRED_DIR": root / "deferred",
+                "DAILY_DIR": root / "daily",
+                "XHS_DIR": root / "xhs",
+                "TOPICS_DIR": root / "topics",
+                "REVIEWS_DIR": root / "reviews",
+                "SNIPPETS_DIR": root / "snippets",
+                "TEMPLATES_DIR": root / "templates",
+                "LOGS_DIR": root / "logs",
+                "STATE_DIR": root / "state",
+                "INDEX_FILE": root / "index.json",
+                "CATALOG_FILE": root / "catalog.md",
+                "LOG_FILE": root / "log.md",
+                "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
+            }
+            with ExitStack() as stack:
+                for name, value in paths.items():
+                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                stack.enter_context(
+                    patch.dict(
+                        voice_notes_ai.os.environ,
+                        {
+                            "VOICE_NOTES_AUTO_XHS_IMPORTS": "1",
+                            "VOICE_NOTES_XHS_AUTO_MAX_PER_DAY": "1",
+                            "VOICE_NOTES_XHS_AUTO_MIN_INTERVAL_SECONDS": "0",
+                        },
+                    )
+                )
+                fetch = stack.enter_context(
+                    patch.object(
+                        voice_notes_ai,
+                        "fetch_xhs_note",
+                        return_value={
+                            "url": "https://www.xiaohongshu.com/explore/note-id",
+                            "title": "原始标题",
+                            "author": "作者",
+                            "text": "正文",
+                            "kind": "article",
+                        },
+                    )
+                )
+                stack.enter_context(
+                    patch.object(voice_notes_ai, "require_api_key", return_value="test-key")
+                )
+                stack.enter_context(
+                    patch.object(voice_notes_ai, "summarize_capture", return_value=structured)
+                )
+                stack.enter_context(patch.object(voice_notes_ai, "send_notification"))
+                processed = voice_notes_ai.process_deferred_xhs(limit=2)
+
+            self.assertEqual(processed, 1)
+            self.assertEqual(fetch.call_count, 1)
+            self.assertFalse(first.exists())
+            self.assertTrue(second.exists())
 
     def test_local_xhs_video_archives_portable_evidence_bundle(self) -> None:
         structured = {
@@ -477,9 +635,11 @@ class XHSImportTests(unittest.TestCase):
                 "SNIPPETS_DIR": root / "snippets",
                 "TEMPLATES_DIR": root / "templates",
                 "LOGS_DIR": root / "logs",
+                "STATE_DIR": root / "state",
                 "INDEX_FILE": root / "index.json",
                 "CATALOG_FILE": root / "catalog.md",
                 "LOG_FILE": root / "log.md",
+                "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
 
             def fake_build(**kwargs: object) -> dict:

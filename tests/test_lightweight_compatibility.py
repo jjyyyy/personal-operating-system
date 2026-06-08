@@ -31,9 +31,15 @@ class LightweightCompatibilityTests(unittest.TestCase):
             patch.object(voice_notes_ai, "SNIPPETS_DIR", root / "snippets"),
             patch.object(voice_notes_ai, "TEMPLATES_DIR", root / "templates"),
             patch.object(voice_notes_ai, "LOGS_DIR", root / "logs"),
+            patch.object(voice_notes_ai, "STATE_DIR", root / "state"),
             patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
             patch.object(voice_notes_ai, "CATALOG_FILE", root / "catalog.md"),
             patch.object(voice_notes_ai, "LOG_FILE", root / "log.md"),
+            patch.object(
+                voice_notes_ai,
+                "XHS_AUTO_STATE_FILE",
+                root / "state" / "xhs-auto-imports.json",
+            ),
         ]
         exits = [item.__enter__() for item in patches]
         try:
@@ -93,8 +99,14 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 patch.object(voice_notes_ai, "SNIPPETS_DIR", root / "snippets"),
                 patch.object(voice_notes_ai, "TEMPLATES_DIR", root / "templates"),
                 patch.object(voice_notes_ai, "LOGS_DIR", root / "logs"),
+                patch.object(voice_notes_ai, "STATE_DIR", root / "state"),
                 patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
                 patch.object(voice_notes_ai, "LOG_FILE", root / "log.md"),
+                patch.object(
+                    voice_notes_ai,
+                    "XHS_AUTO_STATE_FILE",
+                    root / "state" / "xhs-auto-imports.json",
+                ),
             ):
                 sources = voice_notes_ai.inbox_sources()
 
