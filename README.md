@@ -161,9 +161,14 @@ python3 src/voice_notes_ai.py capture-xhs \
 ```
 
 For Share Sheet or Shortcut capture, save the shared text into the normal inbox
-as `xhs-share-*.txt`. `process-inbox`, `watch-inbox`, or cron will route it
-through the same XHS importer. See
+as `xhs-share-*.txt`. When automatic XHS imports are enabled,
+`process-inbox`, `watch-inbox`, or cron routes it through the same XHS importer. See
 [docs/xhs-share-capture.md](docs/xhs-share-capture.md).
+
+Automatic inbox XHS imports are paused by default while account-risk is being
+reviewed. In that state, `xhs-share-*.txt` files are moved to `deferred/xhs/`
+without opening the link. Set `VOICE_NOTES_AUTO_XHS_IMPORTS=1` only when you
+explicitly want the watched inbox to fetch Xiaohongshu links again.
 
 Short `xhslink.com` links are followed automatically. If the public page is
 hidden behind login or platform protection, provide the shared text explicitly:

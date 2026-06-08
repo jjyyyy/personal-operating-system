@@ -40,6 +40,7 @@ Use `catalog.md` only when broad discovery is needed. It is intentionally separa
 - `inbox/`: unprocessed audio files or transcripts.
 - `processed/`: archived source files grouped under `voice/`, `xhs/`, and `bot/`.
 - `discarded/`: accidental inbox recordings moved out of processing.
+- `deferred/`: valid captures paused for policy, access, or account-risk reasons.
 - `daily/`: structured personal voice notes and reflections.
 - `xhs/`: imported XHS knowledge, separate from personal input.
 - `snippets/`: weekly/monthly synthesis snippets.
@@ -125,6 +126,10 @@ python3 src/voice_notes_ai.py capture-xhs --url "https://xhslink.com/..."
 
 Or save shared XHS text into the inbox or `inbox/xhs/` as `xhs-share-*.txt`; see
 `docs/xhs-share-capture.md`.
+
+Automatic inbox XHS imports are paused unless `VOICE_NOTES_AUTO_XHS_IMPORTS=1`
+is set. Paused XHS share files move to `deferred/xhs/` without fetching the
+link.
 
 If a protected video cannot be downloaded directly:
 

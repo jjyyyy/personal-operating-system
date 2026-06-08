@@ -35,10 +35,20 @@ Create a Share Sheet shortcut for text/URLs:
 xhs-share-[Formatted Date].txt
 ```
 
-Then `watch-inbox` or cron can process it through the same XHS importer used by:
+When automatic XHS imports are enabled, `watch-inbox` or cron can process it
+through the same XHS importer used by:
 
 ```bash
 python3 src/voice_notes_ai.py capture-xhs --url "http://xhslink.com/o/9T9AbRY5cG0"
+```
+
+Automatic inbox imports are paused by default while Xiaohongshu account-risk is
+being reviewed. With the default configuration, `xhs-share-*.txt` files are
+moved to `deferred/xhs/` without opening the Xiaohongshu link. To explicitly
+re-enable automatic inbox imports later, set:
+
+```bash
+VOICE_NOTES_AUTO_XHS_IMPORTS=1
 ```
 
 ## Behavior

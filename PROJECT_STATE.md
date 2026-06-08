@@ -1,6 +1,6 @@
 # Project State
 
-Last reviewed: 2026-06-07
+Last reviewed: 2026-06-08
 
 For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 `README.md`. This file is only a handoff note for someone returning to the work.
@@ -40,6 +40,8 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 - On 2026-06-08, Xiaohongshu automation was paused after an account warning:
   the profile-monitor LaunchAgent was disabled and the local MCP container was
   stopped.
+- Automatic inbox XHS imports are now opt-in via
+  `VOICE_NOTES_AUTO_XHS_IMPORTS=1`; paused share files move to `deferred/xhs/`.
 
 ## Current Risks
 

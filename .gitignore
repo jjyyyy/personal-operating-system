@@ -41,6 +41,17 @@ discarded/xhs/*
 !discarded/bot/
 discarded/bot/*
 !discarded/bot/.gitkeep
+deferred/*
+!deferred/.gitkeep
+!deferred/voice/
+deferred/voice/*
+!deferred/voice/.gitkeep
+!deferred/xhs/
+deferred/xhs/*
+!deferred/xhs/.gitkeep
+!deferred/bot/
+deferred/bot/*
+!deferred/bot/.gitkeep
 
 # Generated/private knowledge content
 daily/*

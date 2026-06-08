@@ -24,6 +24,7 @@ Turn scattered captures into a durable Obsidian-style knowledge system. Do not s
 - `inbox/`: unprocessed audio or transcript files.
 - `processed/`: archived immutable source files after ingest.
 - `discarded/`: cancelled or accidental recordings that should not be processed.
+- `deferred/`: valid captures paused for policy, access, or account-risk reasons.
 - `daily/`: personal voice notes and reflections.
 - `xhs/`: imported XHS knowledge, kept separate from personal reflections.
 - `processed/xhs/xhs-video-*/content-package.json`: portable evidence package

@@ -16,7 +16,7 @@ import textwrap
 import urllib.error
 import urllib.request
 from pathlib import Path
-from transcription_service import transcribe
+from transcription_service import read_source_bytes, transcribe
 from video_ingestion import build_video_content_package, video_evidence_text
 from xhs_import import download_xhs_video, fetch_xhs_note
 
@@ -46,6 +46,7 @@ VOICE_ROOT = Path(os.environ.get("VOICE_NOTES_ROOT", ROOT)).expanduser()
 INBOX_DIR = Path(os.environ.get("VOICE_NOTES_INBOX", VOICE_ROOT / "inbox")).expanduser()
 PROCESSED_DIR = VOICE_ROOT / "processed"
 DISCARDED_DIR = VOICE_ROOT / "discarded"
+DEFERRED_DIR = VOICE_ROOT / "deferred"
 DAILY_DIR = VOICE_ROOT / "daily"
 XHS_DIR = VOICE_ROOT / "xhs"
 TOPICS_DIR = VOICE_ROOT / "topics"
@@ -74,6 +75,7 @@ def ensure_dirs() -> None:
         INBOX_DIR,
         PROCESSED_DIR,
         DISCARDED_DIR,
+        DEFERRED_DIR,
         DAILY_DIR,
         XHS_DIR,
         TOPICS_DIR,
@@ -83,7 +85,7 @@ def ensure_dirs() -> None:
         LOGS_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
-    for root in [INBOX_DIR, PROCESSED_DIR, DISCARDED_DIR]:
+    for root in [INBOX_DIR, PROCESSED_DIR, DISCARDED_DIR, DEFERRED_DIR]:
         for source_type in SOURCE_TYPES:
             (root / source_type).mkdir(parents=True, exist_ok=True)
 
@@ -728,6 +730,26 @@ def move_to_discarded(source_path: Path, source_type: str = "voice") -> Path:
     return destination
 
 
+def move_to_deferred(source_path: Path, source_type: str, reason: str) -> Path:
+    ensure_dirs()
+    destination_dir = DEFERRED_DIR / normalized_source_type(source_type)
+    destination = destination_dir / source_path.name
+    counter = 1
+    while destination.exists():
+        destination = destination_dir / f"{source_path.stem}-{counter}{source_path.suffix}"
+        counter += 1
+    shutil.move(str(source_path), str(destination))
+    append_log(
+        "defer",
+        source_path.name,
+        [
+            f"- Deferred source: {path_for_index(destination)}",
+            f"- Reason: {reason}",
+        ],
+    )
+    return destination
+
+
 def is_transcript_file(source_path: Path) -> bool:
     return source_path.suffix.lower() in TRANSCRIPT_EXTENSIONS
 
@@ -764,6 +786,10 @@ def source_metadata_from_text(text: str) -> tuple[str | None, str | None]:
     )
 
 
+def read_source_text(source_path: Path) -> str:
+    return read_source_bytes(source_path).decode("utf-8", errors="replace").strip()
+
+
 def extract_xhs_url(text: str) -> str | None:
     match = XHS_URL_RE.search(text)
     if not match:
@@ -776,6 +802,11 @@ def is_xhs_share_source(source_path: Path) -> bool:
         return False
     lowered = source_path.name.lower()
     return any(lowered.startswith(prefix) for prefix in XHS_SHARE_PREFIXES)
+
+
+def auto_xhs_imports_enabled() -> bool:
+    value = os.environ.get("VOICE_NOTES_AUTO_XHS_IMPORTS", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 def xhs_source_text(imported: dict) -> str:
@@ -803,7 +834,7 @@ def ingest(
 
     if is_transcript_file(source_path):
         print(f"Reading transcript {source_path.name}...")
-        transcript = source_path.read_text(encoding="utf-8").strip()
+        transcript = read_source_text(source_path)
         if not transcript:
             raise SystemExit(f"Transcript file is empty: {source_path}")
     else:
@@ -1068,7 +1099,7 @@ def ingest_xhs_video(
 
 
 def ingest_xhs_share_source(source_path: Path) -> Path:
-    share_text = source_path.read_text(encoding="utf-8").strip()
+    share_text = read_source_text(source_path)
     url = extract_xhs_url(share_text)
     if not url:
         raise SystemExit(
@@ -1089,6 +1120,18 @@ def ingest_xhs_share_source(source_path: Path) -> Path:
 def process_source_safely(source_path: Path, note_date: dt.date | None = None) -> bool:
     try:
         if is_xhs_share_source(source_path):
+            if not auto_xhs_imports_enabled():
+                reason = "Automatic XHS imports are paused after account warning."
+                deferred_path = move_to_deferred(source_path, "xhs", reason)
+                print(
+                    "Deferred XHS share while automatic XHS imports are paused: "
+                    f"{deferred_path}"
+                )
+                send_notification(
+                    f"{source_path.name} moved to deferred/xhs",
+                    "XHS share deferred",
+                )
+                return True
             ingest_xhs_share_source(source_path)
         else:
             ingest(source_path, note_date)
@@ -1107,7 +1150,8 @@ def process_source_safely(source_path: Path, note_date: dt.date | None = None) -
             f"- Error: {error_message}",
         ],
     )
-    send_notification(f"{source_path.name}: {error_message}", "Voice note failed")
+    title = "XHS share failed" if is_xhs_share_source(source_path) else "Voice note failed"
+    send_notification(f"{source_path.name}: {error_message}", title)
     return False
 
 

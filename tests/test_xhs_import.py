@@ -149,6 +149,7 @@ class XHSImportTests(unittest.TestCase):
                 "INBOX_DIR": root / "inbox",
                 "PROCESSED_DIR": root / "processed",
                 "DISCARDED_DIR": root / "discarded",
+                "DEFERRED_DIR": root / "deferred",
                 "DAILY_DIR": root / "daily",
                 "XHS_DIR": root / "xhs",
                 "TOPICS_DIR": root / "topics",
@@ -229,6 +230,7 @@ class XHSImportTests(unittest.TestCase):
                 "INBOX_DIR": inbox,
                 "PROCESSED_DIR": root / "processed",
                 "DISCARDED_DIR": root / "discarded",
+                "DEFERRED_DIR": root / "deferred",
                 "DAILY_DIR": root / "daily",
                 "XHS_DIR": root / "xhs",
                 "TOPICS_DIR": root / "topics",
@@ -254,6 +256,12 @@ class XHSImportTests(unittest.TestCase):
                             "text": "先放松肩膀，再稳定抛球。",
                             "kind": "article",
                         },
+                    )
+                )
+                stack.enter_context(
+                    patch.dict(
+                        voice_notes_ai.os.environ,
+                        {"VOICE_NOTES_AUTO_XHS_IMPORTS": "1"},
                     )
                 )
                 stack.enter_context(
@@ -304,6 +312,7 @@ class XHSImportTests(unittest.TestCase):
                 "INBOX_DIR": inbox,
                 "PROCESSED_DIR": root / "processed",
                 "DISCARDED_DIR": root / "discarded",
+                "DEFERRED_DIR": root / "deferred",
                 "DAILY_DIR": root / "daily",
                 "XHS_DIR": root / "xhs",
                 "TOPICS_DIR": root / "topics",
@@ -357,6 +366,12 @@ class XHSImportTests(unittest.TestCase):
                     )
                 )
                 stack.enter_context(
+                    patch.dict(
+                        voice_notes_ai.os.environ,
+                        {"VOICE_NOTES_AUTO_XHS_IMPORTS": "1"},
+                    )
+                )
+                stack.enter_context(
                     patch.object(voice_notes_ai, "download_xhs_video", side_effect=fake_download)
                 )
                 stack.enter_context(
@@ -383,6 +398,56 @@ class XHSImportTests(unittest.TestCase):
             self.assertTrue(share_copy_exists)
             self.assertTrue(package_exists)
 
+    def test_xhs_share_file_defers_when_auto_imports_are_paused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            share = root / "inbox" / "xhs" / "xhs-share-20260608-060432.txt"
+            share.parent.mkdir(parents=True)
+            share.write_text(
+                "小红书分享 http://xhslink.com/o/example",
+                encoding="utf-8",
+            )
+            paths = {
+                "VOICE_ROOT": root,
+                "INBOX_DIR": root / "inbox",
+                "PROCESSED_DIR": root / "processed",
+                "DISCARDED_DIR": root / "discarded",
+                "DEFERRED_DIR": root / "deferred",
+                "DAILY_DIR": root / "daily",
+                "XHS_DIR": root / "xhs",
+                "TOPICS_DIR": root / "topics",
+                "REVIEWS_DIR": root / "reviews",
+                "SNIPPETS_DIR": root / "snippets",
+                "TEMPLATES_DIR": root / "templates",
+                "LOGS_DIR": root / "logs",
+                "INDEX_FILE": root / "index.json",
+                "CATALOG_FILE": root / "catalog.md",
+                "LOG_FILE": root / "log.md",
+            }
+            with ExitStack() as stack:
+                for name, value in paths.items():
+                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                stack.enter_context(
+                    patch.dict(
+                        voice_notes_ai.os.environ,
+                        {"VOICE_NOTES_AUTO_XHS_IMPORTS": ""},
+                    )
+                )
+                stack.enter_context(
+                    patch.object(
+                        voice_notes_ai,
+                        "fetch_xhs_note",
+                        side_effect=AssertionError("should not fetch XHS"),
+                    )
+                )
+                stack.enter_context(patch.object(voice_notes_ai, "send_notification"))
+                ok = voice_notes_ai.process_source_safely(share)
+
+            deferred = root / "deferred" / "xhs" / share.name
+            self.assertTrue(ok)
+            self.assertFalse(share.exists())
+            self.assertTrue(deferred.exists())
+
     def test_local_xhs_video_archives_portable_evidence_bundle(self) -> None:
         structured = {
             "date": "2026-06-07",
@@ -404,6 +469,7 @@ class XHSImportTests(unittest.TestCase):
                 "INBOX_DIR": root / "inbox",
                 "PROCESSED_DIR": root / "processed",
                 "DISCARDED_DIR": root / "discarded",
+                "DEFERRED_DIR": root / "deferred",
                 "DAILY_DIR": root / "daily",
                 "XHS_DIR": root / "xhs",
                 "TOPICS_DIR": root / "topics",
