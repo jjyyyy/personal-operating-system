@@ -37,6 +37,9 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 - Latest weekly snippet was corrected to a more personal Mandarin style, and
   the 2026-06-06 tennis serve/volley notes were corrected after badminton and
   volleyball were over-promoted from analogy/ASR ambiguity.
+- On 2026-06-08, Xiaohongshu automation was paused after an account warning:
+  the profile-monitor LaunchAgent was disabled and the local MCP container was
+  stopped.
 
 ## Current Risks
 
@@ -45,6 +48,8 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
   `topics/ai-development.md`, `topics/career.md`, `topics/health.md`,
   `topics/ideas.md`, and `topics/system-design.md`.
 - Protected XHS media still needs a manual `--video-file`.
+- Do not restart Xiaohongshu monitor/MCP automation without revisiting account
+  risk. Voice-note XHS share imports should be manual until this is settled.
 - Cron may need macOS Full Disk Access for iCloud inbox folders. Snippet cron is
   intentionally daily catch-up because this is a laptop and may sleep through a
   single weekly/monthly time.
