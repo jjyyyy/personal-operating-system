@@ -181,6 +181,8 @@ writes Telegram confirmation tasks for lower-confidence candidates under
 `outbox/calendar-telegram/`. The default provider is `json`, which records the
 would-be created event under `outbox/calendar-created/`; set
 `VOICE_NOTES_CALENDAR_PROVIDER=apple` to create events through macOS Calendar.
+Direct Google Calendar support has been investigated but not implemented; see
+[docs/google-calendar-provider-investigation.md](docs/google-calendar-provider-investigation.md).
 
 With `uv`:
 

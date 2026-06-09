@@ -54,6 +54,8 @@ Use `catalog.md` only when broad discovery is needed. It is intentionally separa
 - `docs/action-button-flow.md`: Action Button to parsed note setup.
 - `docs/xhs-share-capture.md`: Share Sheet / Shortcut flow for XHS links.
 - `docs/google-maps-save-flow.md`: XHS note to Google Maps manual save queue.
+- `docs/google-calendar-provider-investigation.md`: direct Google Calendar API
+  provider design.
 - `docs/openclaw-integration.md`: OpenClaw agent connection and security notes.
 - `docs/routing-api.md`: route registration API for sibling project inboxes.
 - `docs/proposals/`: detailed proposals that are not yet implemented.
