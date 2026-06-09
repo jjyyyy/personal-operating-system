@@ -166,6 +166,16 @@ python3 src/voice_notes_ai.py route-note daily/your-note.md --dry-run
 Target projects can register local inbox routes with
 `voice-notes-routing.json`; see [docs/routing-api.md](docs/routing-api.md).
 
+Write reviewable Google Calendar candidates from extracted items:
+
+```bash
+python3 src/voice_notes_ai.py calendar-outbox --dry-run
+python3 src/voice_notes_ai.py calendar-outbox
+```
+
+This only writes private JSON under `outbox/calendar/` for high-confidence
+scheduled events. It does not create Google Calendar events automatically.
+
 With `uv`:
 
 ```bash
@@ -176,6 +186,8 @@ The script will:
 
 - transcribe audio, or read `.txt` / `.md` transcripts directly
 - generate structured note content
+- extract generic items such as calendar events, reminders, tasks, weak intents,
+  and reusable knowledge notes
 - add zero to three contextual AI comments only when a real knowledge gap,
   established concept, ambiguity, or verification need warrants one
 - write personal Markdown into `daily/` and XHS knowledge into `xhs/`

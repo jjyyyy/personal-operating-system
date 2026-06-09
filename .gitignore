@@ -73,6 +73,9 @@ outbox/*
 !outbox/google-maps/
 outbox/google-maps/*
 !outbox/google-maps/.gitkeep
+!outbox/calendar/
+outbox/calendar/*
+!outbox/calendar/.gitkeep
 index.json
 catalog.md
 log.md

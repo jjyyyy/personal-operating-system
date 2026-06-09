@@ -128,6 +128,13 @@ python3 src/voice_notes_ai.py list-routes
 python3 src/voice_notes_ai.py route-note daily/example.md --dry-run
 ```
 
+Write reviewable calendar candidates from extracted items:
+
+```bash
+python3 src/voice_notes_ai.py calendar-outbox --dry-run
+python3 src/voice_notes_ai.py calendar-outbox
+```
+
 Process one file:
 
 ```bash

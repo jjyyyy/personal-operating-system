@@ -60,6 +60,12 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 - Generic note routing is now manifest-driven: sibling projects can add
   `voice-notes-routing.json` and receive matching note packages in their own
   inboxes. `voice-notes` does not embed target-specific interpretation logic.
+- New notes now include generic `extracted_items` generated from the transcript:
+  calendar events, reminders, tasks, weak intents, and knowledge notes. Routing
+  should prefer extracted item `route_categories` over free-form note topics.
+- `calendar-outbox` writes private review JSON under `outbox/calendar/` only for
+  high-confidence, calendar-ready extracted events. It does not create Google
+  Calendar events.
 
 ## Current Risks
 
@@ -90,3 +96,5 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
    cron should run `process-deferred-xhs --limit 1` with the safety switch.
 7. Add a `physical-therapy-assistant/voice-notes-routing.json` registration and
    a target-side inbox processor for routed exercise/injury/diet notes.
+8. Migrate target route manifests from broad `topics_any` lists to
+   `route_categories_any` subscriptions.

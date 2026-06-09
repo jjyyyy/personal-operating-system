@@ -155,6 +155,33 @@ def note_matches_route(note_item: dict[str, Any], registration: RouteRegistratio
     return True
 
 
+def item_matches_route(
+    item: dict[str, Any],
+    note_item: dict[str, Any],
+    registration: RouteRegistration,
+) -> bool:
+    matches = registration.matches
+    if not any_exact_match([str(note_item.get("source", ""))], matches.get("source_any")):
+        return False
+    if not any_exact_match([str(item.get("item_type", ""))], matches.get("item_types_any")):
+        return False
+    if not any_exact_match(
+        [str(category) for category in item.get("route_categories", [])],
+        matches.get("route_categories_any"),
+    ):
+        return False
+    if not any_exact_match(
+        [str(topic) for topic in note_item.get("topics", [])],
+        matches.get("topics_any"),
+    ):
+        return False
+    if not any_substring_match(str(note_item.get("title", "")), matches.get("title_any")):
+        return False
+    if not any_substring_match(str(note_item.get("summary", "")), matches.get("summary_any")):
+        return False
+    return True
+
+
 def raw_section_ref(note_file: str, source: str) -> str:
     heading = "Imported Content" if source == "xhs" else "Raw Transcript"
     return f"{note_file}#{heading}"
@@ -164,6 +191,7 @@ def route_package(
     note_item: dict[str, Any],
     registration: RouteRegistration,
     *,
+    extracted_item: dict[str, Any] | None = None,
     note_text: str | None = None,
 ) -> dict[str, Any]:
     note_file = str(note_item.get("note_file", ""))
@@ -187,6 +215,9 @@ def route_package(
         "source_kind": note_item.get("source_kind"),
         "raw_transcript_ref": raw_section_ref(note_file, source),
     }
+    if extracted_item is not None:
+        package["type"] = "voice_notes_routed_item"
+        package["extracted_item"] = extracted_item
     if registration.include_note_body and note_text is not None:
         package["note_body"] = note_text
     return package
@@ -195,6 +226,22 @@ def route_package(
 def unique_package_path(target_inbox: Path, route_id: str, note_file: str) -> Path:
     note_stem = Path(note_file).stem
     base_name = f"{slugify(route_id)}-{slugify(note_stem)}"
+    destination = target_inbox / f"{base_name}.json"
+    counter = 1
+    while destination.exists():
+        destination = target_inbox / f"{base_name}-{counter}.json"
+        counter += 1
+    return destination
+
+
+def unique_item_package_path(
+    target_inbox: Path,
+    route_id: str,
+    note_file: str,
+    item_index: int,
+) -> Path:
+    note_stem = Path(note_file).stem
+    base_name = f"{slugify(route_id)}-{slugify(note_stem)}-item-{item_index:02d}"
     destination = target_inbox / f"{base_name}.json"
     counter = 1
     while destination.exists():
@@ -216,6 +263,37 @@ def deliver_route_package(
         registration.target_inbox,
         registration.route_id,
         str(note_item.get("note_file", "")),
+    )
+    if not dry_run:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
+            json.dumps(package, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return destination
+
+
+def deliver_item_route_package(
+    note_item: dict[str, Any],
+    note_path: Path,
+    registration: RouteRegistration,
+    item: dict[str, Any],
+    item_index: int,
+    *,
+    dry_run: bool = False,
+) -> Path:
+    note_text = note_path.read_text(encoding="utf-8") if registration.include_note_body else None
+    package = route_package(
+        note_item,
+        registration,
+        extracted_item=item,
+        note_text=note_text,
+    )
+    destination = unique_item_package_path(
+        registration.target_inbox,
+        registration.route_id,
+        str(note_item.get("note_file", "")),
+        item_index,
     )
     if not dry_run:
         destination.parent.mkdir(parents=True, exist_ok=True)

@@ -5,6 +5,7 @@ import argparse
 import base64
 import datetime as dt
 import errno
+import hashlib
 import json
 import mimetypes
 import os
@@ -17,6 +18,14 @@ import textwrap
 import urllib.error
 import urllib.request
 from pathlib import Path
+from extracted_items import (
+    calendar_outbox_candidates,
+    calendar_outbox_package,
+    extracted_item_schema,
+    extracted_items_markdown,
+    normalize_extracted_items,
+    write_json as write_extracted_json,
+)
 from google_maps_flow import (
     build_maps_candidates,
     maps_task_payload,
@@ -24,7 +33,9 @@ from google_maps_flow import (
     render_telegram_preview,
 )
 from note_router import (
+    deliver_item_route_package,
     deliver_route_package,
+    item_matches_route,
     load_route_registrations,
     matching_registrations,
 )
@@ -71,6 +82,7 @@ STATE_DIR = VOICE_ROOT / "state"
 MAPS_DIR = VOICE_ROOT / "maps"
 OUTBOX_DIR = VOICE_ROOT / "outbox"
 ROUTES_DIR = VOICE_ROOT / "routes"
+CALENDAR_OUTBOX_DIR = OUTBOX_DIR / "calendar"
 INDEX_FILE = VOICE_ROOT / "index.json"
 CATALOG_FILE = VOICE_ROOT / "catalog.md"
 LOG_FILE = VOICE_ROOT / "log.md"
@@ -105,6 +117,7 @@ def ensure_dirs() -> None:
         STATE_DIR,
         MAPS_DIR,
         OUTBOX_DIR,
+        CALENDAR_OUTBOX_DIR,
         ROUTES_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
@@ -308,7 +321,7 @@ def summarize_capture(
         You are organizing captured material into a clean personal knowledge note.
         Return valid JSON with exactly these keys:
         date, title, source, topics, summary, action_items, people, annotations,
-        raw_transcript
+        extracted_items, raw_transcript
 
         Rules:
         - date must stay "{note_date}"
@@ -319,6 +332,9 @@ def summarize_capture(
         - action_items should be a JSON array
         - people should be a JSON array
         - annotations should be a JSON array with 0-3 items
+        - extracted_items should be a JSON array of independent generic items
+          from the transcript. Return [] if there are no distinct items worth
+          routing, reviewing, or remembering.
         - raw_transcript should preserve the transcript with light cleanup only
         - USER.md self-alias hint: {user_alias_hint()}
         - Use the self-alias hint only when context is clear.
@@ -332,6 +348,28 @@ def summarize_capture(
         - If the transcript context suggests a likely transcription ambiguity
           between sports terms, prefer the broader established context and mark
           uncertainty instead of inventing a new sport category.
+
+        Extracted item policy:
+        - Extract separate items for mixed memos. For example, a massage
+          appointment and tennis technique note should become separate items.
+        - item_type must be one of: calendar_event, reminder, task, weak_intent,
+          knowledge_note.
+        - Use calendar_event only for a clearly scheduled event or appointment.
+        - Set calendar_ready true only when the event has enough date/time
+          information to review as a calendar candidate.
+        - Set needs_confirmation false only when the transcript sounds definite,
+          not like maybe/consider/should.
+        - Use reminder for something to remember that is not clearly scheduled.
+        - Use task for a concrete action without a reminder time.
+        - Use weak_intent for vague maybe/should/consider items.
+        - Use knowledge_note for reusable observations, learning, or technique.
+        - route_categories must use only these broad categories: calendar,
+          health, sports, food, travel, work, projects, relationships, finance,
+          shopping, learning, home, system.
+        - Keep route_categories broad and generic. Do not use domain-specific
+          project labels.
+        - evidence should be a short phrase from the transcript supporting the
+          extraction.
 
         Annotation policy:
         - Returning an empty annotations array is normal and preferred for most notes.
@@ -381,6 +419,10 @@ def summarize_capture(
                             "summary": {"type": "string"},
                             "action_items": {"type": "array", "items": {"type": "string"}},
                             "people": {"type": "array", "items": {"type": "string"}},
+                            "extracted_items": {
+                                "type": "array",
+                                "items": extracted_item_schema(),
+                            },
                             "annotations": {
                                 "type": "array",
                                 "maxItems": 3,
@@ -434,6 +476,7 @@ def summarize_capture(
                             "action_items",
                             "people",
                             "annotations",
+                            "extracted_items",
                             "raw_transcript",
                         ],
                     },
@@ -458,12 +501,17 @@ def summarize_capture(
         "action_items",
         "people",
         "annotations",
+        "extracted_items",
         "raw_transcript",
     ]
     for key in required_keys:
         if key not in data:
+            if key == "extracted_items":
+                data[key] = []
+                continue
             raise SystemExit(f"Summary response missing key: {key}")
 
+    data["extracted_items"] = normalize_extracted_items(data.get("extracted_items", []))
     return data
 
 
@@ -509,6 +557,7 @@ def note_markdown(note: dict) -> str:
     action_items = "\n".join(f"- {item}" for item in note["action_items"]) or "-"
     people = "\n".join(f"- {item}" for item in note["people"]) or "-"
     links = "\n".join(f"- {topic_link(topic)}" for topic in note["topics"]) or "-"
+    extracted_items = normalize_extracted_items(note.get("extracted_items", []))
     source_details = ""
     if note.get("source_url") or note.get("source_author"):
         details = ["## Source", ""]
@@ -539,6 +588,7 @@ def note_markdown(note: dict) -> str:
         f"source: {note['source']}\n"
         f"{source_frontmatter}"
         f"topics: {json.dumps(note['topics'], ensure_ascii=False)}\n"
+        f"extracted_items: {json.dumps(extracted_items, ensure_ascii=False)}\n"
         f"people: {json.dumps(note['people'], ensure_ascii=False)}\n"
         f"title: {note['title']}\n"
         f"---\n\n"
@@ -550,6 +600,7 @@ def note_markdown(note: dict) -> str:
         f"{topics}\n\n"
         f"## Action Items\n\n"
         f"{action_items}\n\n"
+        f"{extracted_items_markdown(extracted_items)}"
         f"## People\n\n"
         f"{people}\n\n"
         f"## Links\n\n"
@@ -561,6 +612,7 @@ def note_markdown(note: dict) -> str:
 
 
 def save_note(note: dict, source_file: Path) -> Path:
+    ensure_dirs()
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     filename = f"{note['date']}-{slugify(note['title'])}-{timestamp}.md"
     output_dir = XHS_DIR if note.get("source") == "xhs" else DAILY_DIR
@@ -573,6 +625,7 @@ def save_note(note: dict, source_file: Path) -> Path:
             "date": note["date"],
             "title": note["title"],
             "topics": note["topics"],
+            "extracted_items": normalize_extracted_items(note.get("extracted_items", [])),
             "people": note["people"],
             "summary": note["summary"],
             "source": note.get("source", "voice"),
@@ -951,30 +1004,64 @@ def route_note(
         resolved_note = vault_path(note_path)
         note_item, _ = find_index_item_for_note(resolved_note)
         registrations = route_registrations()
-        matches = matching_registrations(note_item, registrations)
         outputs: list[Path] = []
-        for registration in matches:
-            output_path = deliver_route_package(
-                note_item,
-                resolved_note,
-                registration,
-                dry_run=dry_run,
-            )
-            outputs.append(output_path)
-            if verbose:
-                action = "Would route" if dry_run else "Routed"
-                print(f"{action} {path_for_index(resolved_note)} -> {output_path}")
-            if not dry_run:
-                append_log(
-                    "route",
-                    str(note_item.get("title") or resolved_note.stem),
-                    [
-                        f"- Source note: {obsidian_link(resolved_note)}",
-                        f"- Route: {registration.route_id}",
-                        f"- Target: {registration.target}",
-                        f"- Package: {output_path}",
-                    ],
+        extracted_items = normalize_extracted_items(note_item.get("extracted_items", []))
+        if extracted_items:
+            for item_index, item in enumerate(extracted_items, start=1):
+                for registration in registrations:
+                    if not item_matches_route(item, note_item, registration):
+                        continue
+                    output_path = deliver_item_route_package(
+                        note_item,
+                        resolved_note,
+                        registration,
+                        item,
+                        item_index,
+                        dry_run=dry_run,
+                    )
+                    outputs.append(output_path)
+                    if verbose:
+                        action = "Would route" if dry_run else "Routed"
+                        print(
+                            f"{action} item {item_index} from "
+                            f"{path_for_index(resolved_note)} -> {output_path}"
+                        )
+                    if not dry_run:
+                        append_log(
+                            "route",
+                            str(note_item.get("title") or resolved_note.stem),
+                            [
+                                f"- Source note: {obsidian_link(resolved_note)}",
+                                f"- Item: {item.get('item_type')} | {item.get('text')}",
+                                f"- Route: {registration.route_id}",
+                                f"- Target: {registration.target}",
+                                f"- Package: {output_path}",
+                            ],
+                        )
+        else:
+            matches = matching_registrations(note_item, registrations)
+            for registration in matches:
+                output_path = deliver_route_package(
+                    note_item,
+                    resolved_note,
+                    registration,
+                    dry_run=dry_run,
                 )
+                outputs.append(output_path)
+                if verbose:
+                    action = "Would route" if dry_run else "Routed"
+                    print(f"{action} {path_for_index(resolved_note)} -> {output_path}")
+                if not dry_run:
+                    append_log(
+                        "route",
+                        str(note_item.get("title") or resolved_note.stem),
+                        [
+                            f"- Source note: {obsidian_link(resolved_note)}",
+                            f"- Route: {registration.route_id}",
+                            f"- Target: {registration.target}",
+                            f"- Package: {output_path}",
+                        ],
+                    )
         if verbose and not outputs:
             print(f"No route matched: {path_for_index(resolved_note)}")
         return outputs
@@ -1005,6 +1092,65 @@ def list_routes() -> list:
         print(f"  target: {registration.target}")
         print(f"  manifest: {registration.manifest_path}")
     return registrations
+
+
+def calendar_candidate_path(note_item: dict, item: dict) -> Path:
+    note_stem = slugify(Path(str(note_item.get("note_file", "note"))).stem)
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            {
+                "source_note": note_item.get("note_file"),
+                "text": item.get("text"),
+                "date_text": item.get("date_text"),
+                "time_text": item.get("time_text"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()[:12]
+    return CALENDAR_OUTBOX_DIR / f"{note_stem}-{fingerprint}.json"
+
+
+def calendar_outbox(limit: int = 20, dry_run: bool = False) -> list[Path]:
+    ensure_dirs()
+    if limit <= 0:
+        raise SystemExit("--limit must be at least 1.")
+    outputs: list[Path] = []
+    for note_item in read_index():
+        for item in calendar_outbox_candidates(note_item):
+            output_path = calendar_candidate_path(note_item, item)
+            if output_path.exists() and not dry_run:
+                continue
+            outputs.append(output_path)
+            if not dry_run:
+                package = calendar_outbox_package(
+                    item,
+                    str(note_item.get("note_file", "")),
+                    note_item.get("source_file"),
+                    str(note_item.get("title") or ""),
+                )
+                write_extracted_json(output_path, package)
+                append_log(
+                    "calendar-outbox",
+                    str(note_item.get("title") or output_path.stem),
+                    [
+                        f"- Source note: {note_item.get('note_file')}",
+                        f"- Candidate: {item.get('text')}",
+                        f"- Output: {path_for_index(output_path)}",
+                    ],
+                )
+            if len(outputs) >= limit:
+                break
+        if len(outputs) >= limit:
+            break
+
+    if outputs:
+        action = "Would write" if dry_run else "Wrote"
+        for output_path in outputs:
+            print(f"{action} calendar candidate: {output_path}")
+    else:
+        print("No calendar-ready extracted items found.")
+    return outputs
 
 
 def normalized_source_type(source_type: str | None) -> str:
@@ -2289,9 +2435,10 @@ def parse_args() -> argparse.Namespace:
 
     calendar_parser = subparsers.add_parser(
         "calendar-outbox",
-        help="Compatibility command; Calendar automation is deferred",
+        help="Write reviewable calendar candidate JSON from extracted items",
     )
     calendar_parser.add_argument("--limit", type=int, default=20)
+    calendar_parser.add_argument("--dry-run", action="store_true")
 
     subparsers.add_parser("rebuild-catalog", help="Regenerate catalog.md from vault files")
     subparsers.add_parser("lint-wiki", help="Create a wiki health-check report")
@@ -2555,10 +2702,7 @@ def main() -> None:
         return
 
     if args.command == "calendar-outbox":
-        print(
-            "Google Calendar automation is deferred. Reminder requests remain "
-            "ordinary action items in daily notes."
-        )
+        calendar_outbox(args.limit, args.dry_run)
         return
 
     if args.command == "rebuild-catalog":

@@ -36,6 +36,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             patch.object(voice_notes_ai, "STATE_DIR", root / "state"),
             patch.object(voice_notes_ai, "MAPS_DIR", root / "maps"),
             patch.object(voice_notes_ai, "OUTBOX_DIR", root / "outbox"),
+            patch.object(voice_notes_ai, "CALENDAR_OUTBOX_DIR", root / "outbox" / "calendar"),
             patch.object(voice_notes_ai, "ROUTES_DIR", root / "routes"),
             patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
             patch.object(voice_notes_ai, "CATALOG_FILE", root / "catalog.md"),
@@ -107,6 +108,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 patch.object(voice_notes_ai, "STATE_DIR", root / "state"),
                 patch.object(voice_notes_ai, "MAPS_DIR", root / "maps"),
                 patch.object(voice_notes_ai, "OUTBOX_DIR", root / "outbox"),
+                patch.object(voice_notes_ai, "CALENDAR_OUTBOX_DIR", root / "outbox" / "calendar"),
                 patch.object(voice_notes_ai, "ROUTES_DIR", root / "routes"),
                 patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
                 patch.object(voice_notes_ai, "LOG_FILE", root / "log.md"),
@@ -626,6 +628,196 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 outputs[0].parent.resolve(),
                 (target / "inbox" / "voice-notes").resolve(),
             )
+
+    def test_save_note_stores_extracted_items_in_markdown_and_index(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "processed" / "voice" / "source.m4a"
+            source.parent.mkdir(parents=True)
+            source.write_text("audio", encoding="utf-8")
+            note = {
+                "date": "2026-06-09",
+                "title": "Mixed memo",
+                "source": "voice",
+                "topics": ["tennis", "massage"],
+                "summary": "A massage appointment and tennis note.",
+                "action_items": ["Confirm massage appointment"],
+                "people": [],
+                "annotations": [],
+                "extracted_items": [
+                    {
+                        "item_type": "calendar_event",
+                        "text": "Massage appointment tomorrow at 3pm",
+                        "date_text": "tomorrow",
+                        "time_text": "3pm",
+                        "route_categories": ["calendar", "health"],
+                        "calendar_ready": True,
+                        "needs_confirmation": False,
+                        "confidence": "high",
+                        "evidence": "massage appointment tomorrow at 3pm",
+                    },
+                    {
+                        "item_type": "knowledge_note",
+                        "text": "Tennis volley timing note",
+                        "date_text": None,
+                        "time_text": None,
+                        "route_categories": ["sports"],
+                        "calendar_ready": False,
+                        "needs_confirmation": False,
+                        "confidence": "high",
+                        "evidence": "tennis volley timing",
+                    },
+                ],
+                "raw_transcript": "Massage appointment tomorrow at 3pm. Tennis volley timing.",
+            }
+            with self.patch_vault_paths(root):
+                output = voice_notes_ai.save_note(note, source)
+                index = json.loads((root / "index.json").read_text(encoding="utf-8"))
+
+            markdown = output.read_text(encoding="utf-8")
+            self.assertIn("extracted_items:", markdown)
+            self.assertIn("## Extracted Items", markdown)
+            self.assertIn("Massage appointment tomorrow at 3pm", markdown)
+            self.assertEqual(index[0]["extracted_items"][0]["item_type"], "calendar_event")
+            self.assertEqual(index[0]["extracted_items"][1]["route_categories"], ["sports"])
+
+    def test_route_note_routes_extracted_items_by_route_category(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            projects_root = Path(directory)
+            root = projects_root / "voice-notes"
+            target = projects_root / "physical-therapy-assistant"
+            note = root / "daily" / "mixed.md"
+            routes_dir = root / "routes"
+            note.parent.mkdir(parents=True)
+            routes_dir.mkdir(parents=True)
+            note.write_text("---\nsource: voice\n---\n", encoding="utf-8")
+            (root / "index.json").parent.mkdir(parents=True, exist_ok=True)
+            (root / "index.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "date": "2026-06-09",
+                            "title": "Mixed memo",
+                            "topics": ["tennis", "massage"],
+                            "extracted_items": [
+                                {
+                                    "item_type": "calendar_event",
+                                    "text": "Massage appointment tomorrow at 3pm",
+                                    "date_text": "tomorrow",
+                                    "time_text": "3pm",
+                                    "route_categories": ["calendar", "health"],
+                                    "calendar_ready": True,
+                                    "needs_confirmation": False,
+                                    "confidence": "high",
+                                    "evidence": "massage appointment tomorrow at 3pm",
+                                },
+                                {
+                                    "item_type": "knowledge_note",
+                                    "text": "Tennis technique note",
+                                    "date_text": None,
+                                    "time_text": None,
+                                    "route_categories": ["sports"],
+                                    "calendar_ready": False,
+                                    "needs_confirmation": False,
+                                    "confidence": "high",
+                                    "evidence": "tennis technique",
+                                },
+                            ],
+                            "people": [],
+                            "summary": "Mixed memo.",
+                            "source": "voice",
+                            "source_file": "processed/voice/source.m4a",
+                            "note_file": "daily/mixed.md",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (routes_dir / "pt.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "id": "pt-assistant",
+                        "target": "physical-therapy-assistant",
+                        "target_inbox": "../physical-therapy-assistant/inbox/voice-notes",
+                        "matches": {"route_categories_any": ["sports", "health"]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.patch_vault_paths(root):
+                outputs = voice_notes_ai.route_note(Path("daily/mixed.md"))
+
+            self.assertEqual(len(outputs), 2)
+            payloads = [json.loads(path.read_text(encoding="utf-8")) for path in outputs]
+            self.assertEqual({payload["type"] for payload in payloads}, {"voice_notes_routed_item"})
+            self.assertEqual(
+                {payload["extracted_item"]["text"] for payload in payloads},
+                {"Massage appointment tomorrow at 3pm", "Tennis technique note"},
+            )
+            self.assertTrue(
+                all(
+                    path.parent.resolve() == (target / "inbox" / "voice-notes").resolve()
+                    for path in outputs
+                )
+            )
+
+    def test_calendar_outbox_writes_only_calendar_ready_high_confidence_items(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "index.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "date": "2026-06-09",
+                            "title": "Mixed memo",
+                            "topics": ["massage"],
+                            "people": [],
+                            "summary": "Mixed memo.",
+                            "source": "voice",
+                            "source_file": "processed/voice/source.m4a",
+                            "note_file": "daily/mixed.md",
+                            "extracted_items": [
+                                {
+                                    "item_type": "calendar_event",
+                                    "text": "Massage appointment tomorrow at 3pm",
+                                    "date_text": "tomorrow",
+                                    "time_text": "3pm",
+                                    "route_categories": ["calendar", "health"],
+                                    "calendar_ready": True,
+                                    "needs_confirmation": False,
+                                    "confidence": "high",
+                                    "evidence": "massage appointment tomorrow at 3pm",
+                                },
+                                {
+                                    "item_type": "reminder",
+                                    "text": "Maybe book another massage",
+                                    "date_text": None,
+                                    "time_text": None,
+                                    "route_categories": ["calendar", "health"],
+                                    "calendar_ready": False,
+                                    "needs_confirmation": True,
+                                    "confidence": "medium",
+                                    "evidence": "maybe book another massage",
+                                },
+                            ],
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with self.patch_vault_paths(root):
+                outputs = voice_notes_ai.calendar_outbox()
+                second_run = voice_notes_ai.calendar_outbox()
+
+            self.assertEqual(len(outputs), 1)
+            self.assertEqual(second_run, [])
+            payload = json.loads(outputs[0].read_text(encoding="utf-8"))
+            self.assertEqual(payload["type"], "voice_notes_calendar_candidate")
+            self.assertEqual(payload["status"], "needs_review")
+            self.assertEqual(payload["text"], "Massage appointment tomorrow at 3pm")
 
     def test_search_scope_separates_personal_and_xhs_notes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
