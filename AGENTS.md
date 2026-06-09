@@ -31,6 +31,7 @@ Turn scattered captures into a durable Obsidian-style knowledge system. Do not s
   for imported videos, including timestamps and visual evidence.
 - `snippets/`: weekly and monthly synthesis snippets.
 - `reviews/`: lint and maintenance reports.
+- `maps/`: private Google Maps save queues generated from XHS notes.
 - `topics/`: long-term topic notes and durable memory.
 - `docs/action-button-flow.md`: setup for iPhone Action Button capture.
 - `automation/`: optional LaunchAgent template for background inbox watching.
@@ -79,6 +80,7 @@ python3 src/voice_notes_ai.py discard-inbox --latest
 python3 src/voice_notes_ai.py discard-deferred xhs-share.txt --source-type xhs
 python3 src/voice_notes_ai.py delete-note xhs/your-note.md --dry-run
 python3 src/voice_notes_ai.py correct-note daily/your-note.md --reason "correction" --summary "corrected summary"
+python3 src/voice_notes_ai.py google-maps-save-queue xhs/your-note.md --city Barcelona
 python3 src/voice_notes_ai.py test-notification
 python3 src/voice_notes_ai.py weekly-snippet
 python3 src/voice_notes_ai.py monthly-snippet

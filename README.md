@@ -30,6 +30,7 @@ voice-notes project root
 ├── topics/         # long-term topic notes
 ├── snippets/       # weekly/monthly synthesis snippets
 ├── reviews/        # lint and maintenance reports
+├── maps/           # private Google Maps save queues
 ├── docs/           # setup notes, including Action Button flow
 ├── automation/     # optional launchd template
 ├── catalog.md      # generated broad content catalog
@@ -140,6 +141,16 @@ python3 src/voice_notes_ai.py correct-note daily/your-note.md \
   --topic 网球 --topic volley \
   --summary "Corrected summary."
 ```
+
+Create a manual Google Maps save queue from an XHS note:
+
+```bash
+python3 src/voice_notes_ai.py google-maps-save-queue xhs/your-note.md --city Barcelona
+```
+
+This writes a private `maps/*.md` checklist with Google Maps search links,
+suggested lists, and suggested tags. It does not log into Google or save places
+automatically.
 
 With `uv`:
 

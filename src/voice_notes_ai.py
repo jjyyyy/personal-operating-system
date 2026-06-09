@@ -16,6 +16,7 @@ import textwrap
 import urllib.error
 import urllib.request
 from pathlib import Path
+from google_maps_flow import build_maps_candidates, render_maps_save_markdown
 from note_corrections import apply_note_correction, parse_cli_list
 from transcription_service import read_source_bytes, transcribe
 from video_ingestion import build_video_content_package, video_evidence_text
@@ -56,6 +57,7 @@ SNIPPETS_DIR = VOICE_ROOT / "snippets"
 TEMPLATES_DIR = VOICE_ROOT / "templates"
 LOGS_DIR = VOICE_ROOT / "logs"
 STATE_DIR = VOICE_ROOT / "state"
+MAPS_DIR = VOICE_ROOT / "maps"
 INDEX_FILE = VOICE_ROOT / "index.json"
 CATALOG_FILE = VOICE_ROOT / "catalog.md"
 LOG_FILE = VOICE_ROOT / "log.md"
@@ -87,6 +89,7 @@ def ensure_dirs() -> None:
         TEMPLATES_DIR,
         LOGS_DIR,
         STATE_DIR,
+        MAPS_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
     for root in [INBOX_DIR, PROCESSED_DIR, DISCARDED_DIR, DEFERRED_DIR]:
@@ -792,6 +795,49 @@ def correct_note(
     )
     print(f"Corrected note: {resolved_note}")
     return resolved_note
+
+
+def google_maps_save_queue(
+    note_path: Path,
+    city: str = "",
+    output_path: Path | None = None,
+    dry_run: bool = False,
+) -> Path:
+    ensure_dirs()
+    resolved_note = vault_path(note_path)
+    note_text = resolved_note.read_text(encoding="utf-8")
+    candidates = build_maps_candidates(note_text, city)
+    if output_path:
+        resolved_output = output_path.expanduser()
+        if not resolved_output.is_absolute():
+            resolved_output = MAPS_DIR / resolved_output
+    else:
+        resolved_output = MAPS_DIR / f"{resolved_note.stem}-google-maps-save-queue.md"
+
+    rendered = render_maps_save_markdown(
+        source_note=resolved_note,
+        source_link=obsidian_link(resolved_note),
+        city=city,
+        candidates=candidates,
+    )
+    if dry_run:
+        print(rendered)
+        return resolved_output
+
+    resolved_output.parent.mkdir(parents=True, exist_ok=True)
+    resolved_output.write_text(rendered, encoding="utf-8")
+    append_log(
+        "maps",
+        f"Google Maps save queue for {resolved_note.stem}",
+        [
+            f"- Source note: {obsidian_link(resolved_note)}",
+            f"- Output: {path_for_index(resolved_output)}",
+            f"- Candidates: {len(candidates)}",
+        ],
+    )
+    print(f"Saved Google Maps queue: {resolved_output}")
+    print(f"Candidates: {len(candidates)}")
+    return resolved_output
 
 
 def normalized_source_type(source_type: str | None) -> str:
@@ -1970,6 +2016,15 @@ def parse_args() -> argparse.Namespace:
     )
     correct_parser.add_argument("--dry-run", action="store_true")
 
+    maps_parser = subparsers.add_parser(
+        "google-maps-save-queue",
+        help="Create a manual Google Maps save queue from an XHS note",
+    )
+    maps_parser.add_argument("note_file", type=Path)
+    maps_parser.add_argument("--city", default="", help="Add a city to each Maps search query")
+    maps_parser.add_argument("--output", type=Path, default=None)
+    maps_parser.add_argument("--dry-run", action="store_true")
+
     review_parser = subparsers.add_parser("weekly-review", help="Legacy alias for weekly-snippet")
     review_parser.add_argument("--from", dest="date_from", type=str, default=None)
     review_parser.add_argument("--to", dest="date_to", type=str, default=None)
@@ -2176,6 +2231,10 @@ def main() -> None:
             people=parse_cli_list(args.people),
             dry_run=args.dry_run,
         )
+        return
+
+    if args.command == "google-maps-save-queue":
+        google_maps_save_queue(args.note_file, args.city, args.output, args.dry_run)
         return
 
     if args.command in {"weekly-review", "weekly-snippet"}:

@@ -45,11 +45,13 @@ Use `catalog.md` only when broad discovery is needed. It is intentionally separa
 - `xhs/`: imported XHS knowledge, separate from personal input.
 - `snippets/`: weekly/monthly synthesis snippets.
 - `reviews/`: lint and maintenance reports.
+- `maps/`: private Google Maps save queues generated from XHS notes.
 - `topics/`: long-term topic notes. Prefer updating these over creating many new files.
 - `templates/`: Markdown templates.
 - `prompts/`: reusable AI prompts.
 - `docs/action-button-flow.md`: Action Button to parsed note setup.
 - `docs/xhs-share-capture.md`: Share Sheet / Shortcut flow for XHS links.
+- `docs/google-maps-save-flow.md`: XHS note to Google Maps manual save queue.
 - `docs/openclaw-integration.md`: OpenClaw agent connection and security notes.
 - `docs/proposals/`: detailed proposals that are not yet implemented.
 - `docs/proposals/2026-06-07-unified-inbox-reminders-xhs.md`: archived decision record explaining why the multi-source platform direction was reduced.
@@ -107,6 +109,12 @@ Record a semantic correction on an indexed note:
 
 ```bash
 python3 src/voice_notes_ai.py correct-note daily/your-note.md --reason "what was wrong" --summary "corrected summary"
+```
+
+Create a Google Maps save queue from an XHS note:
+
+```bash
+python3 src/voice_notes_ai.py google-maps-save-queue xhs/your-note.md --city Barcelona
 ```
 
 Process one file:

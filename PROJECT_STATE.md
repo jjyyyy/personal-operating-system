@@ -1,6 +1,6 @@
 # Project State
 
-Last reviewed: 2026-06-08
+Last reviewed: 2026-06-09
 
 For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 `README.md`. This file is only a handoff note for someone returning to the work.
@@ -49,6 +49,9 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
   `deferred/` is clear except `.gitkeep` files.
 - `discard-deferred` and `correct-note` exist for deferred cleanup and semantic
   note corrections. Corrections update the note, index, catalog, and log.
+- `google-maps-save-queue` generates private `maps/*.md` checklists from XHS
+  place notes. It only creates search links/list suggestions; no Google account
+  automation.
 
 ## Current Risks
 
@@ -73,5 +76,7 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
    so corrected notes can guide future snippets.
 4. Preserve the `daily/` vs `xhs/` source boundary in snippets, search, and
    answers.
-5. After a few more manual XHS imports without account warnings, decide whether
+5. Try the Google Maps queue on a few food/travel XHS notes and tune list/tag
+   heuristics against real saves.
+6. After a few more manual XHS imports without account warnings, decide whether
    cron should run `process-deferred-xhs --limit 1` with the safety switch.

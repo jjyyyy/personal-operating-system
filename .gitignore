@@ -66,6 +66,8 @@ snippets/*
 !snippets/.gitkeep
 reviews/*
 !reviews/.gitkeep
+maps/*
+!maps/.gitkeep
 index.json
 catalog.md
 log.md

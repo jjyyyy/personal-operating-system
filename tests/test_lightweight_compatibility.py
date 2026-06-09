@@ -32,6 +32,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             patch.object(voice_notes_ai, "TEMPLATES_DIR", root / "templates"),
             patch.object(voice_notes_ai, "LOGS_DIR", root / "logs"),
             patch.object(voice_notes_ai, "STATE_DIR", root / "state"),
+            patch.object(voice_notes_ai, "MAPS_DIR", root / "maps"),
             patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
             patch.object(voice_notes_ai, "CATALOG_FILE", root / "catalog.md"),
             patch.object(voice_notes_ai, "LOG_FILE", root / "log.md"),
@@ -100,6 +101,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 patch.object(voice_notes_ai, "TEMPLATES_DIR", root / "templates"),
                 patch.object(voice_notes_ai, "LOGS_DIR", root / "logs"),
                 patch.object(voice_notes_ai, "STATE_DIR", root / "state"),
+                patch.object(voice_notes_ai, "MAPS_DIR", root / "maps"),
                 patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
                 patch.object(voice_notes_ai, "LOG_FILE", root / "log.md"),
                 patch.object(
@@ -321,6 +323,63 @@ class LightweightCompatibilityTests(unittest.TestCase):
             self.assertEqual(updated_index[0]["summary"], "This note is about tennis volley technique.")
             self.assertIn("Tennis Volley Note", (root / "catalog.md").read_text(encoding="utf-8"))
             self.assertIn("correct | note", (root / "log.md").read_text(encoding="utf-8"))
+
+    def test_google_maps_save_queue_extracts_xhs_place_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            note = root / "xhs" / "barcelona-food.md"
+            note.parent.mkdir(parents=True)
+            note.write_text(
+                "\n".join(
+                    [
+                        "# 巴塞罗那美食",
+                        "",
+                        "## Imported Content",
+                        "",
+                        "p1 marmot",
+                        "中午有brunch套餐",
+                        "",
+                        "p2 myka",
+                        "路过可以尝尝的酸奶冰淇淋",
+                        "",
+                        "p3 centric restaurant&cafe",
+                        "在La Roca打折村 饭不夹生 面包也是烤的脆脆的",
+                        "",
+                        "p4 sandwich club",
+                        "好吃但是小贵的三明治 这家冰抹茶拿铁很难喝",
+                        "",
+                        "p5 madeleine by ferrieres",
+                        "法式甜品店 巧克力脑袋直接冲",
+                        "",
+                        "p6 jiancha 见茶山",
+                        "25%糖的泰奶 是好喝的奶茶",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.patch_vault_paths(root):
+                output = voice_notes_ai.google_maps_save_queue(
+                    Path("xhs/barcelona-food.md"),
+                    city="Barcelona",
+                )
+
+            rendered = output.read_text(encoding="utf-8")
+            centric_block = rendered.split("### centric restaurant&cafe", 1)[1].split("###", 1)[0]
+            sandwich_block = rendered.split("### sandwich club", 1)[1].split("###", 1)[0]
+            madeleine_block = rendered.split("### madeleine by ferrieres", 1)[1].split("###", 1)[0]
+            jiancha_block = rendered.split("### jiancha 见茶山", 1)[1].split("###", 1)[0]
+            self.assertEqual(output.parent, root / "maps")
+            self.assertIn("### marmot", rendered)
+            self.assertIn("- Suggested list: Brunch", rendered)
+            self.assertIn("query=marmot+Barcelona", rendered)
+            self.assertIn("### myka", rendered)
+            self.assertIn("- Suggested list: Gelato", rendered)
+            self.assertIn("- Suggested list: 吃-Travel", centric_block)
+            self.assertIn("- Suggested list: 吃-Travel", sandwich_block)
+            self.assertIn("- Suggested list: Bakery", madeleine_block)
+            self.assertIn("- Suggested list: 喝", jiancha_block)
+            self.assertIn("maps | Google Maps save queue", (root / "log.md").read_text(encoding="utf-8"))
 
     def test_search_scope_separates_personal_and_xhs_notes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
