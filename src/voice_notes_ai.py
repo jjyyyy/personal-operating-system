@@ -16,6 +16,7 @@ import textwrap
 import urllib.error
 import urllib.request
 from pathlib import Path
+from note_corrections import apply_note_correction, parse_cli_list
 from transcription_service import read_source_bytes, transcribe
 from video_ingestion import build_video_content_package, video_evidence_text
 from xhs_import import download_xhs_video, fetch_xhs_note
@@ -687,6 +688,110 @@ def delete_note(note_path: Path, dry_run: bool = False) -> tuple[Path, Path | No
     if source_path:
         print(f"Deleted source: {source_path}")
     return resolved_note, source_path
+
+
+def resolve_deferred_source(raw_path: Path, source_type: str | None = None) -> Path:
+    ensure_dirs()
+    candidates = [raw_path]
+    if not raw_path.is_absolute():
+        candidates.append(DEFERRED_DIR / raw_path)
+        if source_type:
+            candidates.append(DEFERRED_DIR / normalized_source_type(source_type) / raw_path)
+        else:
+            for candidate_type in SOURCE_TYPES:
+                candidates.append(DEFERRED_DIR / candidate_type / raw_path)
+
+    for candidate in candidates:
+        resolved = candidate.expanduser()
+        if not resolved.is_absolute():
+            resolved = VOICE_ROOT / resolved
+        if resolved.exists():
+            try:
+                resolved.resolve().relative_to(DEFERRED_DIR.resolve())
+            except ValueError as exc:
+                raise SystemExit(f"Refusing to discard non-deferred file: {resolved}") from exc
+            return resolved.resolve()
+    raise SystemExit(f"Deferred source not found: {raw_path}")
+
+
+def discard_deferred(
+    source_files: list[Path],
+    source_type: str | None = None,
+    dry_run: bool = False,
+) -> list[Path]:
+    if not source_files:
+        raise SystemExit("Pass one or more deferred files to discard.")
+
+    discarded: list[Path] = []
+    for raw_path in source_files:
+        source_path = resolve_deferred_source(raw_path, source_type)
+        target_type = source_type or infer_source_type(source_path)
+        if dry_run:
+            destination = DISCARDED_DIR / normalized_source_type(target_type) / source_path.name
+            print(f"Would discard deferred source: {path_for_index(source_path)} -> {path_for_index(destination)}")
+            discarded.append(destination)
+            continue
+        discarded_path = move_to_discarded(source_path, target_type)
+        print(f"Discarded deferred source: {discarded_path}")
+        discarded.append(discarded_path)
+    return discarded
+
+
+def update_index_item_for_note(note_path: Path, updates: dict) -> None:
+    item, items = find_index_item_for_note(note_path)
+    item.update({key: value for key, value in updates.items() if value is not None})
+    write_index(items)
+
+
+def correct_note(
+    note_path: Path,
+    reason: str,
+    title: str | None = None,
+    summary: str | None = None,
+    topics: list[str] | None = None,
+    action_items: list[str] | None = None,
+    people: list[str] | None = None,
+    dry_run: bool = False,
+) -> Path:
+    ensure_dirs()
+    if not reason.strip():
+        raise SystemExit("--reason is required for semantic corrections.")
+    resolved_note = vault_path(note_path)
+    find_index_item_for_note(resolved_note)
+
+    text = resolved_note.read_text(encoding="utf-8")
+    correction = apply_note_correction(
+        text,
+        reason=reason,
+        topic_linker=topic_link,
+        title=title,
+        summary=summary,
+        topics=topics,
+        action_items=action_items,
+        people=people,
+    )
+    if not correction.changed_fields:
+        raise SystemExit("Pass at least one field to correct.")
+
+    if dry_run:
+        print(f"Would correct note: {path_for_index(resolved_note)}")
+        print(f"Changed fields: {', '.join(correction.changed_fields)}")
+        return resolved_note
+
+    resolved_note.write_text(correction.text, encoding="utf-8")
+    update_index_item_for_note(resolved_note, correction.index_updates)
+    rebuild_catalog()
+    append_log(
+        "correct",
+        resolved_note.stem,
+        [
+            f"- Note: {obsidian_link(resolved_note)}",
+            f"- Reason: {reason.strip()}",
+            f"- Updated fields: {', '.join(correction.changed_fields)}",
+        ],
+    )
+    print(f"Corrected note: {resolved_note}")
+    return resolved_note
 
 
 def normalized_source_type(source_type: str | None) -> str:
@@ -1812,6 +1917,19 @@ def parse_args() -> argparse.Namespace:
     discard_parser.add_argument("source_files", nargs="*", type=Path)
     discard_parser.add_argument("--latest", action="store_true", help="Discard the newest supported inbox file")
 
+    discard_deferred_parser = subparsers.add_parser(
+        "discard-deferred",
+        help="Move deferred sources that should not be retried to discarded/",
+    )
+    discard_deferred_parser.add_argument("source_files", nargs="+", type=Path)
+    discard_deferred_parser.add_argument(
+        "--source-type",
+        choices=SOURCE_TYPES,
+        default=None,
+        help="Resolve filenames under a specific deferred subfolder",
+    )
+    discard_deferred_parser.add_argument("--dry-run", action="store_true")
+
     deferred_xhs_parser = subparsers.add_parser(
         "process-deferred-xhs",
         help="Process a limited number of deferred XHS shares when safety gates allow it",
@@ -1821,6 +1939,36 @@ def parse_args() -> argparse.Namespace:
     delete_parser = subparsers.add_parser("delete-note", help="Delete an indexed note and its archived source")
     delete_parser.add_argument("note_file", type=Path)
     delete_parser.add_argument("--dry-run", action="store_true", help="Show what would be deleted")
+
+    correct_parser = subparsers.add_parser(
+        "correct-note",
+        help="Apply a semantic correction to an indexed note",
+    )
+    correct_parser.add_argument("note_file", type=Path)
+    correct_parser.add_argument("--reason", required=True)
+    correct_parser.add_argument("--title", default=None)
+    correct_parser.add_argument("--summary", default=None)
+    correct_parser.add_argument(
+        "--topic",
+        dest="topics",
+        action="append",
+        default=None,
+        help="Correct topics; pass multiple times or comma-separate",
+    )
+    correct_parser.add_argument(
+        "--action-item",
+        dest="action_items",
+        action="append",
+        default=None,
+        help="Correct action items; pass multiple times or comma-separate",
+    )
+    correct_parser.add_argument(
+        "--people",
+        action="append",
+        default=None,
+        help="Correct people; pass multiple times or comma-separate",
+    )
+    correct_parser.add_argument("--dry-run", action="store_true")
 
     review_parser = subparsers.add_parser("weekly-review", help="Legacy alias for weekly-snippet")
     review_parser.add_argument("--from", dest="date_from", type=str, default=None)
@@ -2005,12 +2153,29 @@ def main() -> None:
         discard_inbox(args.source_files, args.latest)
         return
 
+    if args.command == "discard-deferred":
+        discard_deferred(args.source_files, args.source_type, args.dry_run)
+        return
+
     if args.command == "process-deferred-xhs":
         process_deferred_xhs(args.limit)
         return
 
     if args.command == "delete-note":
         delete_note(args.note_file, args.dry_run)
+        return
+
+    if args.command == "correct-note":
+        correct_note(
+            args.note_file,
+            reason=args.reason,
+            title=args.title,
+            summary=args.summary,
+            topics=parse_cli_list(args.topics),
+            action_items=parse_cli_list(args.action_items),
+            people=parse_cli_list(args.people),
+            dry_run=args.dry_run,
+        )
         return
 
     if args.command in {"weekly-review", "weekly-snippet"}:

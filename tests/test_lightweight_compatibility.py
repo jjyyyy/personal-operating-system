@@ -220,6 +220,108 @@ class LightweightCompatibilityTests(unittest.TestCase):
             with self.patch_vault_paths(root), self.assertRaisesRegex(SystemExit, "not tracked"):
                 voice_notes_ai.delete_note(Path("daily/note.md"))
 
+    def test_discard_deferred_moves_source_to_discarded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "deferred" / "xhs" / "xhs-share.txt"
+            source.parent.mkdir(parents=True)
+            source.write_text("http://xhslink.com/o/example", encoding="utf-8")
+            with self.patch_vault_paths(root):
+                discarded = voice_notes_ai.discard_deferred(
+                    [Path("xhs-share.txt")],
+                    source_type="xhs",
+                )
+
+            self.assertFalse(source.exists())
+            self.assertEqual(discarded[0], root / "discarded" / "xhs" / "xhs-share.txt")
+            self.assertTrue(discarded[0].exists())
+            self.assertIn("discard | xhs-share.txt", (root / "log.md").read_text(encoding="utf-8"))
+
+    def test_correct_note_updates_markdown_index_catalog_and_log(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            note = root / "daily" / "note.md"
+            note.parent.mkdir(parents=True)
+            (root / "topics").mkdir()
+            note.write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "date: 2026-06-07",
+                        "source: voice",
+                        'topics: ["volleyball"]',
+                        "people: []",
+                        "title: Old Title",
+                        "---",
+                        "",
+                        "# Old Title",
+                        "",
+                        "## Summary",
+                        "",
+                        "Old summary.",
+                        "",
+                        "## Topics",
+                        "",
+                        "- volleyball",
+                        "",
+                        "## Action Items",
+                        "",
+                        "- old action",
+                        "",
+                        "## People",
+                        "",
+                        "-",
+                        "",
+                        "## Links",
+                        "",
+                        "- volleyball (unpromoted)",
+                        "",
+                        "## Raw Transcript",
+                        "",
+                        "I meant tennis volley.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            index = [
+                {
+                    "date": "2026-06-07",
+                    "title": "Old Title",
+                    "topics": ["volleyball"],
+                    "people": [],
+                    "summary": "Old summary.",
+                    "source": "voice",
+                    "source_file": "processed/voice/source.txt",
+                    "note_file": "daily/note.md",
+                }
+            ]
+            (root / "index.json").write_text(json.dumps(index), encoding="utf-8")
+            with self.patch_vault_paths(root):
+                voice_notes_ai.correct_note(
+                    Path("daily/note.md"),
+                    reason="volley means tennis volley, not volleyball",
+                    title="Tennis Volley Note",
+                    summary="This note is about tennis volley technique.",
+                    topics=["网球", "volley"],
+                    action_items=[],
+                    people=[],
+                )
+                updated_index = json.loads((root / "index.json").read_text(encoding="utf-8"))
+
+            markdown = note.read_text(encoding="utf-8")
+            self.assertIn("title: Tennis Volley Note", markdown)
+            self.assertIn('topics: ["网球", "volley"]', markdown)
+            self.assertIn("# Tennis Volley Note", markdown)
+            self.assertIn("This note is about tennis volley technique.", markdown)
+            self.assertIn("## Corrections", markdown)
+            self.assertIn("volley means tennis volley", markdown)
+            self.assertEqual(updated_index[0]["title"], "Tennis Volley Note")
+            self.assertEqual(updated_index[0]["topics"], ["网球", "volley"])
+            self.assertEqual(updated_index[0]["summary"], "This note is about tennis volley technique.")
+            self.assertIn("Tennis Volley Note", (root / "catalog.md").read_text(encoding="utf-8"))
+            self.assertIn("correct | note", (root / "log.md").read_text(encoding="utf-8"))
+
     def test_search_scope_separates_personal_and_xhs_notes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             daily = Path(directory) / "daily"

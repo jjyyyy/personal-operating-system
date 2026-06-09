@@ -76,7 +76,9 @@ Turn scattered captures into a durable Obsidian-style knowledge system. Do not s
 python3 src/voice_notes_ai.py process-inbox
 python3 src/voice_notes_ai.py watch-inbox --once --settle-seconds 20
 python3 src/voice_notes_ai.py discard-inbox --latest
+python3 src/voice_notes_ai.py discard-deferred xhs-share.txt --source-type xhs
 python3 src/voice_notes_ai.py delete-note xhs/your-note.md --dry-run
+python3 src/voice_notes_ai.py correct-note daily/your-note.md --reason "correction" --summary "corrected summary"
 python3 src/voice_notes_ai.py test-notification
 python3 src/voice_notes_ai.py weekly-snippet
 python3 src/voice_notes_ai.py monthly-snippet

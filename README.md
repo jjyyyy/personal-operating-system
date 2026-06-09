@@ -126,6 +126,21 @@ One-shot watcher test:
 python3 src/voice_notes_ai.py watch-inbox --once --settle-seconds 20
 ```
 
+Move a deferred source that should not be retried into `discarded/`:
+
+```bash
+python3 src/voice_notes_ai.py discard-deferred xhs-share.txt --source-type xhs
+```
+
+Apply a semantic correction to a tracked note:
+
+```bash
+python3 src/voice_notes_ai.py correct-note daily/your-note.md \
+  --reason "volley meant tennis volley, not volleyball" \
+  --topic 网球 --topic volley \
+  --summary "Corrected summary."
+```
+
 With `uv`:
 
 ```bash

@@ -45,6 +45,10 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 - Safe XHS resume path is now the deferred queue:
   `VOICE_NOTES_AUTO_XHS_IMPORTS=1 python3 src/voice_notes_ai.py process-deferred-xhs --limit 1`.
   Defaults are two automatic imports per day and a six-hour cooldown.
+- The duplicate deferred XHS share from 2026-06-08 was discarded on 2026-06-09;
+  `deferred/` is clear except `.gitkeep` files.
+- `discard-deferred` and `correct-note` exist for deferred cleanup and semantic
+  note corrections. Corrections update the note, index, catalog, and log.
 
 ## Current Risks
 
@@ -65,10 +69,9 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 1. Add source links or seed-note explanations for lint-flagged topic notes.
 2. Add a short development/troubleshooting doc for Python, FFmpeg, cron, iCloud,
    notifications, and protected XHS media.
-3. Keep tightening daily-note prompts and correction workflow so analogies,
-   ASR ambiguity, and primary topics stay separate.
+3. Use `correct-note` when analogies, ASR ambiguity, or primary topics are wrong
+   so corrected notes can guide future snippets.
 4. Preserve the `daily/` vs `xhs/` source boundary in snippets, search, and
    answers.
-5. Manually test one deferred XHS import after explicit approval, then decide
-   whether cron should run `process-deferred-xhs --limit 1` with the safety
-   switch.
+5. After a few more manual XHS imports without account warnings, decide whether
+   cron should run `process-deferred-xhs --limit 1` with the safety switch.

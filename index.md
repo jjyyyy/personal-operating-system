@@ -90,11 +90,23 @@ Discard the newest accidental inbox capture:
 python3 src/voice_notes_ai.py discard-inbox --latest
 ```
 
+Discard a deferred source that should not be retried:
+
+```bash
+python3 src/voice_notes_ai.py discard-deferred xhs-share.txt --source-type xhs
+```
+
 Delete a generated note and its archived source:
 
 ```bash
 python3 src/voice_notes_ai.py delete-note xhs/your-note.md --dry-run
 python3 src/voice_notes_ai.py delete-note xhs/your-note.md
+```
+
+Record a semantic correction on an indexed note:
+
+```bash
+python3 src/voice_notes_ai.py correct-note daily/your-note.md --reason "what was wrong" --summary "corrected summary"
 ```
 
 Process one file:
