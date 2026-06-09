@@ -5,8 +5,8 @@ Last checked: 2026-06-09
 ## Conclusion
 
 Google Calendar supports the provider shape needed by `calendar-dispatch`.
-Implement it as a small provider behind the existing `calendar_flow.create_event`
-boundary, not as a second calendar pipeline.
+The provider is implemented in `src/google_calendar_provider.py` behind the
+existing `calendar_flow.create_event` boundary.
 
 The current flow should stay:
 
@@ -43,9 +43,9 @@ Official docs:
 - https://developers.google.com/workspace/calendar/api/quickstart/python
 - https://developers.google.com/workspace/calendar/api/auth
 
-## Proposed Module
+## Implemented Module
 
-Add `src/google_calendar_provider.py` later with this public function:
+`src/google_calendar_provider.py` exposes:
 
 ```python
 def create_google_calendar_event(candidate: dict, config: GoogleCalendarConfig) -> dict:
@@ -64,7 +64,7 @@ Return shape should match the current provider contract:
 }
 ```
 
-`src/calendar_flow.py` should only add:
+`src/calendar_flow.py` dispatches to it with:
 
 ```python
 if provider == "google":
@@ -139,18 +139,26 @@ Only write Telegram confirmation tasks for:
 Telegram approval belongs to OpenClaw. `voice-notes` should only write/read JSON
 task artifacts.
 
-## Implementation Steps
+## Setup Steps
 
-1. Add ignored `secrets/` path or document an existing private config path.
-2. Add optional dependencies:
-   `google-api-python-client`, `google-auth-httplib2`,
-   `google-auth-oauthlib`.
-3. Add `src/google_calendar_provider.py`.
-4. Add `provider == "google"` branch in `calendar_flow.create_event`.
-5. Add `calendar-auth-google` or a dry-run command that initializes OAuth
-   without creating an event.
-6. Test with `VOICE_NOTES_CALENDAR_PROVIDER=google` on one known candidate.
-7. Keep `json` provider as the default until the OAuth token is stable.
+1. Create an OAuth desktop client in Google Cloud and download credentials.
+2. Save credentials at `secrets/google-calendar-credentials.json`.
+3. Install dependencies from `pyproject.toml`.
+4. Run a dispatch with:
+
+   ```bash
+   VOICE_NOTES_CALENDAR_PROVIDER=google python3 src/voice_notes_ai.py calendar-dispatch
+   ```
+
+5. The first run opens a local browser OAuth flow and writes
+   `secrets/google-calendar-token.json`.
+6. To test command wiring without creating an event:
+
+   ```bash
+   python3 src/voice_notes_ai.py calendar-dispatch --dry-run --provider google
+   ```
+7. Add `calendar-auth-google` later if a no-event auth command is useful.
+8. Keep `json` provider as the default until the OAuth token is stable.
 
 ## Risks
 

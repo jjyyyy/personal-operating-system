@@ -2518,7 +2518,7 @@ def parse_args() -> argparse.Namespace:
     calendar_dispatch_parser.add_argument("--dry-run", action="store_true")
     calendar_dispatch_parser.add_argument(
         "--provider",
-        choices=["json", "apple"],
+        choices=["json", "apple", "google"],
         default=None,
         help="Calendar provider; defaults to VOICE_NOTES_CALENDAR_PROVIDER or json",
     )

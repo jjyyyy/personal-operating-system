@@ -67,9 +67,9 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
   `outbox/calendar/`; `calendar-dispatch` creates high-confidence resolved
   events through a swappable provider or writes Telegram confirmation tasks for
   lower-confidence candidates.
-- Direct Google Calendar API support has been investigated in
-  `docs/google-calendar-provider-investigation.md`; next implementation is a
-  small `google` provider behind the existing `calendar-dispatch` boundary.
+- Direct Google Calendar API support is implemented as an optional
+  `calendar-dispatch --provider google` provider. It needs OAuth credentials
+  under ignored `secrets/` before first use.
 
 ## Current Risks
 
@@ -102,5 +102,4 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
    a target-side inbox processor for routed exercise/injury/diet notes.
 8. Migrate target route manifests from broad `topics_any` lists to
    `route_categories_any` subscriptions.
-9. Add the Google Calendar provider once OAuth credentials/token storage is
-   decided.
+9. Set up Google Calendar OAuth credentials and run one real provider smoke test.

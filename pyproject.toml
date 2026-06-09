@@ -5,6 +5,9 @@ description = "A personal system for capturing thoughts, extracting actions, and
 requires-python = ">=3.11"
 dependencies = [
   "certifi>=2025.11.12",
+  "google-api-python-client>=2.171.0",
+  "google-auth-httplib2>=0.2.0",
+  "google-auth-oauthlib>=1.2.2",
 ]
 
 [tool.uv]

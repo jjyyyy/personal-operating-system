@@ -15,6 +15,8 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(SRC))
 
 import voice_notes_ai  # noqa: E402
+import calendar_flow  # noqa: E402
+from google_calendar_provider import google_event_body  # noqa: E402
 
 
 class LightweightCompatibilityTests(unittest.TestCase):
@@ -847,6 +849,49 @@ class LightweightCompatibilityTests(unittest.TestCase):
             self.assertEqual(candidate["confirmation_channel"], "telegram")
             self.assertEqual(telegram["type"], "voice_notes_calendar_confirmation")
             self.assertIn("approve, skip, or edit", telegram["message"])
+
+    def test_google_calendar_event_body_maps_resolved_candidate(self) -> None:
+        candidate = {
+            "type": "voice_notes_calendar_candidate",
+            "text": "按摩预约",
+            "source_note": "daily/mixed.md",
+            "evidence": "明天下午三点有一个按摩的appointment",
+            "event": {
+                "title": "按摩预约",
+                "timezone": "Europe/Madrid",
+                "start_datetime": "2026-06-10T15:00:00+02:00",
+                "end_datetime": "2026-06-10T16:00:00+02:00",
+            },
+        }
+
+        body = google_event_body(candidate)
+
+        self.assertEqual(body["summary"], "按摩预约")
+        self.assertEqual(body["start"]["dateTime"], "2026-06-10T15:00:00+02:00")
+        self.assertEqual(body["start"]["timeZone"], "Europe/Madrid")
+        self.assertEqual(body["end"]["dateTime"], "2026-06-10T16:00:00+02:00")
+        self.assertEqual(body["extendedProperties"]["private"]["source_project"], "voice-notes")
+        self.assertIn("daily/mixed.md", body["description"])
+
+    def test_calendar_flow_dispatches_google_provider(self) -> None:
+        candidate = {
+            "event": {
+                "title": "按摩预约",
+                "timezone": "Europe/Madrid",
+                "start_datetime": "2026-06-10T15:00:00+02:00",
+                "end_datetime": "2026-06-10T16:00:00+02:00",
+            }
+        }
+
+        with patch.object(
+            calendar_flow,
+            "create_google_calendar_event",
+            return_value={"provider": "google", "event_id": "abc", "status": "created"},
+        ):
+            result = calendar_flow.create_event(candidate, "google", Path("/tmp/unused"))
+
+        self.assertEqual(result["provider"], "google")
+        self.assertEqual(result["event_id"], "abc")
 
     def test_search_scope_separates_personal_and_xhs_notes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

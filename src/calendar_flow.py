@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+from google_calendar_provider import create_google_calendar_event
 
 
 DEFAULT_TIMEZONE = "Europe/Madrid"
@@ -180,6 +181,8 @@ def render_telegram_confirmation(candidate: dict[str, Any]) -> str:
 def create_event(candidate: dict[str, Any], provider: str, created_dir: Path) -> dict[str, Any]:
     if provider == "apple":
         return create_apple_calendar_event(candidate)
+    if provider == "google":
+        return create_google_calendar_event(candidate)
     if provider == "json":
         return create_json_calendar_event(candidate, created_dir)
     raise ValueError(f"unsupported calendar provider: {provider}")
