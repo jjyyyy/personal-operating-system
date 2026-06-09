@@ -8,6 +8,16 @@ This file contains vault-specific rules. The shared instructions in
 `../AGENTS.md` still govern Git history, `PROJECT_STATE.md`, and project
 continuity unless this file gives a more specific vault rule.
 
+## Shared Capability Reuse
+
+Before implementing a new capability:
+
+1. Search `shared-skills`.
+2. Search sibling projects.
+3. Reuse existing capabilities if available.
+4. If duplication is detected, create an Extraction Proposal.
+5. Do not create or modify shared skills directly.
+
 ## Required Start
 
 1. Read `index.md` first.
@@ -32,7 +42,10 @@ Turn scattered captures into a durable Obsidian-style knowledge system. Do not s
 - `snippets/`: weekly and monthly synthesis snippets.
 - `reviews/`: lint and maintenance reports.
 - `maps/`: private Google Maps save queues generated from XHS notes.
+- `outbox/`: private task packages for external agents such as OpenClaw.
+- `routes/`: generic route registrations for target project inboxes.
 - `topics/`: long-term topic notes and durable memory.
+- `docs/routing-api.md`: registration API for sibling project inbox routing.
 - `docs/action-button-flow.md`: setup for iPhone Action Button capture.
 - `automation/`: optional LaunchAgent template for background inbox watching.
 - `catalog.md`: generated content catalog for broad discovery.
@@ -80,7 +93,10 @@ python3 src/voice_notes_ai.py discard-inbox --latest
 python3 src/voice_notes_ai.py discard-deferred xhs-share.txt --source-type xhs
 python3 src/voice_notes_ai.py delete-note xhs/your-note.md --dry-run
 python3 src/voice_notes_ai.py correct-note daily/your-note.md --reason "correction" --summary "corrected summary"
+python3 src/voice_notes_ai.py google-maps-task xhs/your-note.md --city Barcelona
 python3 src/voice_notes_ai.py google-maps-save-queue xhs/your-note.md --city Barcelona
+python3 src/voice_notes_ai.py list-routes
+python3 src/voice_notes_ai.py route-note daily/your-note.md --dry-run
 python3 src/voice_notes_ai.py test-notification
 python3 src/voice_notes_ai.py weekly-snippet
 python3 src/voice_notes_ai.py monthly-snippet

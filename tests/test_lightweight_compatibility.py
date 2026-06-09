@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import errno
+import os
 import sys
 import tempfile
 import unittest
@@ -33,6 +35,8 @@ class LightweightCompatibilityTests(unittest.TestCase):
             patch.object(voice_notes_ai, "LOGS_DIR", root / "logs"),
             patch.object(voice_notes_ai, "STATE_DIR", root / "state"),
             patch.object(voice_notes_ai, "MAPS_DIR", root / "maps"),
+            patch.object(voice_notes_ai, "OUTBOX_DIR", root / "outbox"),
+            patch.object(voice_notes_ai, "ROUTES_DIR", root / "routes"),
             patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
             patch.object(voice_notes_ai, "CATALOG_FILE", root / "catalog.md"),
             patch.object(voice_notes_ai, "LOG_FILE", root / "log.md"),
@@ -102,6 +106,8 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 patch.object(voice_notes_ai, "LOGS_DIR", root / "logs"),
                 patch.object(voice_notes_ai, "STATE_DIR", root / "state"),
                 patch.object(voice_notes_ai, "MAPS_DIR", root / "maps"),
+                patch.object(voice_notes_ai, "OUTBOX_DIR", root / "outbox"),
+                patch.object(voice_notes_ai, "ROUTES_DIR", root / "routes"),
                 patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
                 patch.object(voice_notes_ai, "LOG_FILE", root / "log.md"),
                 patch.object(
@@ -238,6 +244,83 @@ class LightweightCompatibilityTests(unittest.TestCase):
             self.assertEqual(discarded[0], root / "discarded" / "xhs" / "xhs-share.txt")
             self.assertTrue(discarded[0].exists())
             self.assertIn("discard | xhs-share.txt", (root / "log.md").read_text(encoding="utf-8"))
+
+    def test_move_source_file_falls_back_after_icloud_deadlock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "inbox" / "xhs-share.txt"
+            destination_dir = root / "deferred" / "xhs"
+            source.parent.mkdir(parents=True)
+            source.write_text("小红书分享 http://xhslink.com/o/example\n", encoding="utf-8")
+
+            def fake_move(_source: str, destination: str) -> None:
+                Path(destination).write_bytes(b"")
+                raise OSError(errno.EDEADLK, os.strerror(errno.EDEADLK))
+
+            with (
+                self.patch_vault_paths(root),
+                patch.object(voice_notes_ai.shutil, "move", side_effect=fake_move),
+            ):
+                destination = voice_notes_ai.move_source_file(source, destination_dir)
+
+            self.assertFalse(source.exists())
+            self.assertEqual(destination, destination_dir / "xhs-share.txt")
+            self.assertEqual(
+                destination.read_text(encoding="utf-8"),
+                "小红书分享 http://xhslink.com/o/example\n",
+            )
+
+    def test_move_source_file_removes_fallback_copy_when_unlink_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "inbox" / "xhs-share.txt"
+            destination_dir = root / "deferred" / "xhs"
+            source.parent.mkdir(parents=True)
+            source.write_text("小红书分享 http://xhslink.com/o/example\n", encoding="utf-8")
+
+            def fake_move(_source: str, destination: str) -> None:
+                Path(destination).write_bytes(b"")
+                raise OSError(errno.EDEADLK, os.strerror(errno.EDEADLK))
+
+            original_unlink = Path.unlink
+
+            def fake_unlink(path: Path, *args: object, **kwargs: object) -> None:
+                if path == source:
+                    raise PermissionError("cannot remove source")
+                original_unlink(path, *args, **kwargs)
+
+            with (
+                self.patch_vault_paths(root),
+                patch.object(voice_notes_ai.shutil, "move", side_effect=fake_move),
+                patch.object(voice_notes_ai.Path, "unlink", fake_unlink),
+                self.assertRaises(PermissionError),
+            ):
+                voice_notes_ai.move_source_file(source, destination_dir)
+
+            self.assertTrue(source.exists())
+            self.assertFalse((destination_dir / "xhs-share.txt").exists())
+
+    def test_move_source_file_removes_nonempty_partial_after_icloud_deadlock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "inbox" / "xhs-share.txt"
+            destination_dir = root / "deferred" / "xhs"
+            source.parent.mkdir(parents=True)
+            source.write_text("完整的小红书分享\n", encoding="utf-8")
+
+            def fake_move(_source: str, destination: str) -> None:
+                Path(destination).write_text("partial", encoding="utf-8")
+                raise OSError(errno.EDEADLK, os.strerror(errno.EDEADLK))
+
+            with (
+                self.patch_vault_paths(root),
+                patch.object(voice_notes_ai.shutil, "move", side_effect=fake_move),
+            ):
+                destination = voice_notes_ai.move_source_file(source, destination_dir)
+
+            self.assertFalse(source.exists())
+            self.assertEqual(destination, destination_dir / "xhs-share.txt")
+            self.assertEqual(destination.read_text(encoding="utf-8"), "完整的小红书分享\n")
 
     def test_correct_note_updates_markdown_index_catalog_and_log(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -380,6 +463,169 @@ class LightweightCompatibilityTests(unittest.TestCase):
             self.assertIn("- Suggested list: Bakery", madeleine_block)
             self.assertIn("- Suggested list: 喝", jiancha_block)
             self.assertIn("maps | Google Maps save queue", (root / "log.md").read_text(encoding="utf-8"))
+
+    def test_google_maps_task_writes_json_for_openclaw(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            note = root / "xhs" / "barcelona-food.md"
+            note.parent.mkdir(parents=True)
+            note.write_text(
+                "# 巴塞罗那美食\n\n## Imported Content\n\np1 marmot\n中午有brunch套餐\n",
+                encoding="utf-8",
+            )
+            with self.patch_vault_paths(root):
+                output = voice_notes_ai.google_maps_task(
+                    Path("xhs/barcelona-food.md"),
+                    city="Barcelona",
+                )
+
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(output.parent, root / "outbox" / "google-maps")
+            self.assertEqual(payload["type"], "google_maps_save_queue")
+            self.assertEqual(payload["source_note"], "xhs/barcelona-food.md")
+            self.assertEqual(payload["candidates"][0]["name"], "marmot")
+            self.assertEqual(payload["candidates"][0]["suggested_list"], "Brunch")
+            self.assertIn("maps-task | Google Maps task", (root / "log.md").read_text(encoding="utf-8"))
+
+    def test_google_maps_task_ids_include_position_to_avoid_duplicates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            note = root / "xhs" / "duplicate-food.md"
+            note.parent.mkdir(parents=True)
+            note.write_text(
+                "\n".join(
+                    [
+                        "# Duplicate",
+                        "",
+                        "## Imported Content",
+                        "",
+                        "p1 marmot",
+                        "brunch",
+                        "",
+                        "p2 marmot",
+                        "coffee",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.patch_vault_paths(root):
+                output = voice_notes_ai.google_maps_task(Path("xhs/duplicate-food.md"))
+
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            ids = [candidate["id"] for candidate in payload["candidates"]]
+            self.assertEqual(ids, ["marmot-01", "marmot-02"])
+
+    def test_route_note_delivers_matching_note_to_registered_inbox(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            projects_root = Path(directory)
+            root = projects_root / "voice-notes"
+            target = projects_root / "physical-therapy-assistant"
+            note = root / "daily" / "note.md"
+            routes_dir = root / "routes"
+            note.parent.mkdir(parents=True)
+            routes_dir.mkdir(parents=True)
+            note.write_text(
+                "---\nsource: voice\ntopics: [\"exercise\"]\n---\n\n# Note\n\n## Raw Transcript\n\nPain after training.\n",
+                encoding="utf-8",
+            )
+            (root / "index.json").parent.mkdir(parents=True, exist_ok=True)
+            (root / "index.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "date": "2026-06-09",
+                            "title": "Training note",
+                            "topics": ["exercise", "injury"],
+                            "people": [],
+                            "summary": "Pain after training.",
+                            "source": "voice",
+                            "source_file": "processed/voice/source.m4a",
+                            "note_file": "daily/note.md",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (routes_dir / "pt.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "id": "pt-assistant",
+                        "target": "physical-therapy-assistant",
+                        "target_inbox": "../physical-therapy-assistant/inbox/voice-notes",
+                        "matches": {
+                            "source_any": ["voice"],
+                            "topics_any": ["exercise", "injury", "diet"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.patch_vault_paths(root):
+                outputs = voice_notes_ai.route_note(Path("daily/note.md"))
+
+            self.assertEqual(len(outputs), 1)
+            self.assertEqual(
+                outputs[0].parent.resolve(),
+                (target / "inbox" / "voice-notes").resolve(),
+            )
+            payload = json.loads(outputs[0].read_text(encoding="utf-8"))
+            self.assertEqual(payload["type"], "voice_notes_routed_note")
+            self.assertEqual(payload["route_id"], "pt-assistant")
+            self.assertEqual(payload["source_note"], "daily/note.md")
+            self.assertEqual(payload["topics"], ["exercise", "injury"])
+            self.assertNotIn("note_body", payload)
+            self.assertIn("route | Training note", (root / "log.md").read_text(encoding="utf-8"))
+
+    def test_route_note_can_discover_target_project_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            projects_root = Path(directory)
+            root = projects_root / "voice-notes"
+            target = projects_root / "physical-therapy-assistant"
+            note = root / "daily" / "food.md"
+            note.parent.mkdir(parents=True)
+            target.mkdir(parents=True)
+            note.write_text("---\nsource: voice\n---\n", encoding="utf-8")
+            (root / "index.json").parent.mkdir(parents=True, exist_ok=True)
+            (root / "index.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "date": "2026-06-09",
+                            "title": "Diet note",
+                            "topics": ["diet"],
+                            "people": [],
+                            "summary": "Protein and training.",
+                            "source": "voice",
+                            "source_file": "processed/voice/source.m4a",
+                            "note_file": "daily/food.md",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (target / "voice-notes-routing.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "id": "pt-diet",
+                        "target": "physical-therapy-assistant",
+                        "target_inbox": "inbox/voice-notes",
+                        "matches": {"topics_any": ["diet"]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.patch_vault_paths(root):
+                outputs = voice_notes_ai.route_note(Path("daily/food.md"))
+
+            self.assertEqual(
+                outputs[0].parent.resolve(),
+                (target / "inbox" / "voice-notes").resolve(),
+            )
 
     def test_search_scope_separates_personal_and_xhs_notes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

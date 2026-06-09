@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 import urllib.parse
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 GOOGLE_MAPS_LISTS = (
@@ -149,3 +151,66 @@ def render_maps_save_markdown(
             ]
         )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def candidate_id(name: str) -> str:
+    cleaned = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "-", name.lower()).strip("-")
+    return cleaned or "place"
+
+
+def maps_task_payload(
+    source_note: Path,
+    source_path: str,
+    city: str,
+    candidates: list[MapsCandidate],
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "type": "google_maps_save_queue",
+        "version": 1,
+        "created_at": now,
+        "source_note": source_path,
+        "city": city,
+        "status": "pending",
+        "instructions": (
+            "Send these candidates through the OpenClaw main agent's Telegram "
+            "channel. The user opens Maps manually, saves the place manually, "
+            "then marks each candidate saved or skipped."
+        ),
+        "candidates": [
+            {
+                "id": f"{candidate_id(candidate.name)}-{index:02d}",
+                "status": "pending",
+                "name": candidate.name,
+                "maps_url": candidate.query_url,
+                "suggested_list": candidate.list_name,
+                "suggested_tag": candidate.tag,
+                "context": candidate.description,
+                "source_note": source_path,
+            }
+            for index, candidate in enumerate(candidates, start=1)
+        ],
+        "source_title": source_note.stem,
+    }
+
+
+def render_telegram_preview(payload: dict[str, Any], limit: int = 5) -> str:
+    candidates = payload.get("candidates", [])
+    lines = [
+        f"Google Maps 保存候选 · {payload.get('city') or 'no city'}",
+        f"来源: {payload.get('source_note')}",
+        f"候选: {len(candidates)}",
+        "",
+    ]
+    for index, candidate in enumerate(candidates[:limit], start=1):
+        lines.extend(
+            [
+                f"{index}. {candidate['name']}",
+                f"List: {candidate['suggested_list']} · Tag: {candidate['suggested_tag']}",
+                candidate["maps_url"],
+                "",
+            ]
+        )
+    if len(candidates) > limit:
+        lines.append(f"...还有 {len(candidates) - limit} 个候选")
+    return "\n".join(lines).strip()

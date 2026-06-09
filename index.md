@@ -46,6 +46,8 @@ Use `catalog.md` only when broad discovery is needed. It is intentionally separa
 - `snippets/`: weekly/monthly synthesis snippets.
 - `reviews/`: lint and maintenance reports.
 - `maps/`: private Google Maps save queues generated from XHS notes.
+- `outbox/`: private task packages for external agents such as OpenClaw.
+- `routes/`: generic route registrations for target project inboxes.
 - `topics/`: long-term topic notes. Prefer updating these over creating many new files.
 - `templates/`: Markdown templates.
 - `prompts/`: reusable AI prompts.
@@ -53,6 +55,7 @@ Use `catalog.md` only when broad discovery is needed. It is intentionally separa
 - `docs/xhs-share-capture.md`: Share Sheet / Shortcut flow for XHS links.
 - `docs/google-maps-save-flow.md`: XHS note to Google Maps manual save queue.
 - `docs/openclaw-integration.md`: OpenClaw agent connection and security notes.
+- `docs/routing-api.md`: route registration API for sibling project inboxes.
 - `docs/proposals/`: detailed proposals that are not yet implemented.
 - `docs/proposals/2026-06-07-unified-inbox-reminders-xhs.md`: archived decision record explaining why the multi-source platform direction was reduced.
 - `automation/`: optional LaunchAgent template for `watch-inbox`.
@@ -114,7 +117,15 @@ python3 src/voice_notes_ai.py correct-note daily/your-note.md --reason "what was
 Create a Google Maps save queue from an XHS note:
 
 ```bash
+python3 src/voice_notes_ai.py google-maps-task xhs/your-note.md --city Barcelona
 python3 src/voice_notes_ai.py google-maps-save-queue xhs/your-note.md --city Barcelona
+```
+
+List or test generic note routes:
+
+```bash
+python3 src/voice_notes_ai.py list-routes
+python3 src/voice_notes_ai.py route-note daily/example.md --dry-run
 ```
 
 Process one file:

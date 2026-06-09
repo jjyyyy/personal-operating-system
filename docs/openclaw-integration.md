@@ -23,6 +23,21 @@ OpenClaw injects these workspace files at the beginning of a session:
 
 `AGENTS.md` remains the operating source of truth. `index.md` is the vault entry point.
 
+## Telegram Boundary
+
+The OpenClaw main agent owns Telegram delivery. This vault should not add a
+second Telegram bot or store Telegram credentials.
+
+For Google Maps saves, `voice-notes` emits task files:
+
+```bash
+python3 src/voice_notes_ai.py google-maps-task xhs/your-note.md --city Barcelona
+```
+
+Tasks are written under `outbox/google-maps/` as private JSON. The main agent can
+read a task, send each candidate to Telegram, and write any result back through a
+separate bot/inbox file if needed.
+
 ## Use
 
 Open the local Dashboard:
@@ -49,6 +64,7 @@ ask: on-miss
 strictInlineEval: true
 ```
 
-It is intentionally not bound to Telegram, WhatsApp, or another external channel. Add a dedicated channel/account binding only when external chat access is explicitly desired.
+It is intentionally not bound to Telegram, WhatsApp, or another external channel.
+Use the OpenClaw main agent's existing Telegram binding for external delivery.
 
 Heartbeat is disabled, so the agent does not make periodic model calls by itself.

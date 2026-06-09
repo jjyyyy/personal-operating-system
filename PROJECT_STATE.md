@@ -52,10 +52,18 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 - `google-maps-save-queue` generates private `maps/*.md` checklists from XHS
   place notes. It only creates search links/list suggestions; no Google account
   automation.
+- `google-maps-task` emits private `outbox/google-maps/*.json` task packages
+  for the OpenClaw main agent to deliver through Telegram.
+- XHS share deferral now falls back to copy+unlink when macOS/iCloud rejects
+  `shutil.move` with `EDEADLK`; this fixed the 2026-06-09 repeated failed
+  notifications for `xhs-share-2026-06-09-135907.txt`.
+- Generic note routing is now manifest-driven: sibling projects can add
+  `voice-notes-routing.json` and receive matching note packages in their own
+  inboxes. `voice-notes` does not embed target-specific interpretation logic.
 
 ## Current Risks
 
-- `python3 -m unittest discover -s tests` passed on 2026-06-07.
+- `python3 -m unittest discover -s tests` passed on 2026-06-09.
 - Latest lint flagged seed topic notes without source links:
   `topics/ai-development.md`, `topics/career.md`, `topics/health.md`,
   `topics/ideas.md`, and `topics/system-design.md`.
@@ -80,3 +88,5 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
    heuristics against real saves.
 6. After a few more manual XHS imports without account warnings, decide whether
    cron should run `process-deferred-xhs --limit 1` with the safety switch.
+7. Add a `physical-therapy-assistant/voice-notes-routing.json` registration and
+   a target-side inbox processor for routed exercise/injury/diet notes.

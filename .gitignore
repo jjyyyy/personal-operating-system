@@ -68,6 +68,11 @@ reviews/*
 !reviews/.gitkeep
 maps/*
 !maps/.gitkeep
+outbox/*
+!outbox/.gitkeep
+!outbox/google-maps/
+outbox/google-maps/*
+!outbox/google-maps/.gitkeep
 index.json
 catalog.md
 log.md

@@ -31,6 +31,8 @@ voice-notes project root
 ├── snippets/       # weekly/monthly synthesis snippets
 ├── reviews/        # lint and maintenance reports
 ├── maps/           # private Google Maps save queues
+├── outbox/         # private task packages for external agents
+├── routes/         # generic route registrations for target project inboxes
 ├── docs/           # setup notes, including Action Button flow
 ├── automation/     # optional launchd template
 ├── catalog.md      # generated broad content catalog
@@ -145,12 +147,24 @@ python3 src/voice_notes_ai.py correct-note daily/your-note.md \
 Create a manual Google Maps save queue from an XHS note:
 
 ```bash
+python3 src/voice_notes_ai.py google-maps-task xhs/your-note.md --city Barcelona
 python3 src/voice_notes_ai.py google-maps-save-queue xhs/your-note.md --city Barcelona
 ```
 
-This writes a private `maps/*.md` checklist with Google Maps search links,
-suggested lists, and suggested tags. It does not log into Google or save places
+`google-maps-task` writes private JSON under `outbox/google-maps/` for the
+OpenClaw main agent to send through Telegram. `google-maps-save-queue` writes a
+private `maps/*.md` fallback checklist. Neither logs into Google or saves places
 automatically.
+
+List or test generic note routes:
+
+```bash
+python3 src/voice_notes_ai.py list-routes
+python3 src/voice_notes_ai.py route-note daily/your-note.md --dry-run
+```
+
+Target projects can register local inbox routes with
+`voice-notes-routing.json`; see [docs/routing-api.md](docs/routing-api.md).
 
 With `uv`:
 

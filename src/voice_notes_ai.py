@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as dt
+import errno
 import json
 import mimetypes
 import os
@@ -16,7 +17,17 @@ import textwrap
 import urllib.error
 import urllib.request
 from pathlib import Path
-from google_maps_flow import build_maps_candidates, render_maps_save_markdown
+from google_maps_flow import (
+    build_maps_candidates,
+    maps_task_payload,
+    render_maps_save_markdown,
+    render_telegram_preview,
+)
+from note_router import (
+    deliver_route_package,
+    load_route_registrations,
+    matching_registrations,
+)
 from note_corrections import apply_note_correction, parse_cli_list
 from transcription_service import read_source_bytes, transcribe
 from video_ingestion import build_video_content_package, video_evidence_text
@@ -58,6 +69,8 @@ TEMPLATES_DIR = VOICE_ROOT / "templates"
 LOGS_DIR = VOICE_ROOT / "logs"
 STATE_DIR = VOICE_ROOT / "state"
 MAPS_DIR = VOICE_ROOT / "maps"
+OUTBOX_DIR = VOICE_ROOT / "outbox"
+ROUTES_DIR = VOICE_ROOT / "routes"
 INDEX_FILE = VOICE_ROOT / "index.json"
 CATALOG_FILE = VOICE_ROOT / "catalog.md"
 LOG_FILE = VOICE_ROOT / "log.md"
@@ -66,6 +79,7 @@ TRANSCRIPT_EXTENSIONS = {".txt", ".md", ".markdown"}
 AUDIO_EXTENSIONS = {".m4a", ".mp3", ".mp4", ".mpeg", ".mpga", ".wav", ".webm"}
 TEMP_SOURCE_SUFFIXES = {".icloud", ".download", ".part", ".tmp", ".crdownload"}
 TRANSIENT_API_STATUS_CODES = {429, 500, 502, 503, 504}
+MOVE_FALLBACK_ERRNOS = {errno.EAGAIN, errno.EDEADLK}
 SOURCE_TYPES = ("voice", "xhs", "bot")
 XHS_SHARE_PREFIXES = ("xhs-share-", "xiaohongshu-share-")
 XHS_URL_RE = re.compile(
@@ -90,6 +104,8 @@ def ensure_dirs() -> None:
         LOGS_DIR,
         STATE_DIR,
         MAPS_DIR,
+        OUTBOX_DIR,
+        ROUTES_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
     for root in [INBOX_DIR, PROCESSED_DIR, DISCARDED_DIR, DEFERRED_DIR]:
@@ -661,6 +677,42 @@ def delete_path(path: Path) -> None:
         path.unlink()
 
 
+def unique_destination(destination_dir: Path, source_path: Path) -> Path:
+    destination = destination_dir / source_path.name
+    counter = 1
+    while destination.exists():
+        destination = destination_dir / f"{source_path.stem}-{counter}{source_path.suffix}"
+        counter += 1
+    return destination
+
+
+def replace_with_source_bytes(source_path: Path, destination: Path) -> None:
+    data = read_source_bytes(source_path)
+    temporary = destination.with_name(f".{destination.name}.tmp")
+    temporary.write_bytes(data)
+    temporary.replace(destination)
+    try:
+        source_path.unlink()
+    except OSError:
+        destination.unlink(missing_ok=True)
+        raise
+
+
+def move_source_file(source_path: Path, destination_dir: Path) -> Path:
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = unique_destination(destination_dir, source_path)
+    try:
+        shutil.move(str(source_path), str(destination))
+        return destination
+    except OSError as exc:
+        if exc.errno not in MOVE_FALLBACK_ERRNOS:
+            raise
+        if destination.exists():
+            destination.unlink()
+        replace_with_source_bytes(source_path, destination)
+        return destination
+
+
 def delete_note(note_path: Path, dry_run: bool = False) -> tuple[Path, Path | None]:
     ensure_dirs()
     resolved_note = vault_path(note_path)
@@ -840,6 +892,121 @@ def google_maps_save_queue(
     return resolved_output
 
 
+def google_maps_task(
+    note_path: Path,
+    city: str = "",
+    output_path: Path | None = None,
+    telegram_preview: bool = False,
+) -> Path:
+    ensure_dirs()
+    resolved_note = vault_path(note_path)
+    note_text = resolved_note.read_text(encoding="utf-8")
+    candidates = build_maps_candidates(note_text, city)
+    if output_path:
+        resolved_output = output_path.expanduser()
+        if not resolved_output.is_absolute():
+            resolved_output = OUTBOX_DIR / "google-maps" / resolved_output
+    else:
+        resolved_output = OUTBOX_DIR / "google-maps" / f"{resolved_note.stem}-google-maps-task.json"
+
+    payload = maps_task_payload(
+        source_note=resolved_note,
+        source_path=path_for_index(resolved_note),
+        city=city,
+        candidates=candidates,
+    )
+    resolved_output.parent.mkdir(parents=True, exist_ok=True)
+    resolved_output.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    append_log(
+        "maps-task",
+        f"Google Maps task for {resolved_note.stem}",
+        [
+            f"- Source note: {obsidian_link(resolved_note)}",
+            f"- Output: {path_for_index(resolved_output)}",
+            f"- Candidates: {len(candidates)}",
+        ],
+    )
+    print(f"Saved Google Maps task: {resolved_output}")
+    print(f"Candidates: {len(candidates)}")
+    if telegram_preview:
+        print(render_telegram_preview(payload))
+    return resolved_output
+
+
+def route_registrations():
+    return load_route_registrations(VOICE_ROOT, ROUTES_DIR)
+
+
+def route_note(
+    note_path: Path,
+    dry_run: bool = False,
+    *,
+    strict: bool = True,
+    verbose: bool = True,
+) -> list[Path]:
+    try:
+        resolved_note = vault_path(note_path)
+        note_item, _ = find_index_item_for_note(resolved_note)
+        registrations = route_registrations()
+        matches = matching_registrations(note_item, registrations)
+        outputs: list[Path] = []
+        for registration in matches:
+            output_path = deliver_route_package(
+                note_item,
+                resolved_note,
+                registration,
+                dry_run=dry_run,
+            )
+            outputs.append(output_path)
+            if verbose:
+                action = "Would route" if dry_run else "Routed"
+                print(f"{action} {path_for_index(resolved_note)} -> {output_path}")
+            if not dry_run:
+                append_log(
+                    "route",
+                    str(note_item.get("title") or resolved_note.stem),
+                    [
+                        f"- Source note: {obsidian_link(resolved_note)}",
+                        f"- Route: {registration.route_id}",
+                        f"- Target: {registration.target}",
+                        f"- Package: {output_path}",
+                    ],
+                )
+        if verbose and not outputs:
+            print(f"No route matched: {path_for_index(resolved_note)}")
+        return outputs
+    except Exception as exc:
+        if strict:
+            raise SystemExit(str(exc)) from exc
+        append_log(
+            "error",
+            f"route {note_path}",
+            [
+                f"- Note: {note_path}",
+                f"- Error: {type(exc).__name__}: {exc}",
+            ],
+        )
+        return []
+
+
+def list_routes() -> list:
+    try:
+        registrations = route_registrations()
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    if not registrations:
+        print("No route registrations found.")
+        return registrations
+    for registration in registrations:
+        print(f"{registration.route_id} -> {registration.target_inbox}")
+        print(f"  target: {registration.target}")
+        print(f"  manifest: {registration.manifest_path}")
+    return registrations
+
+
 def normalized_source_type(source_type: str | None) -> str:
     return source_type if source_type in SOURCE_TYPES else "voice"
 
@@ -857,25 +1024,13 @@ def infer_source_type(source_path: Path) -> str:
 
 def archive_source(source_path: Path, source_type: str = "voice") -> Path:
     destination_dir = PROCESSED_DIR / normalized_source_type(source_type)
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    destination = destination_dir / source_path.name
-    counter = 1
-    while destination.exists():
-        destination = destination_dir / f"{source_path.stem}-{counter}{source_path.suffix}"
-        counter += 1
-    shutil.move(str(source_path), str(destination))
-    return destination
+    return move_source_file(source_path, destination_dir)
 
 
 def move_to_discarded(source_path: Path, source_type: str = "voice") -> Path:
     ensure_dirs()
     destination_dir = DISCARDED_DIR / normalized_source_type(source_type)
-    destination = destination_dir / source_path.name
-    counter = 1
-    while destination.exists():
-        destination = destination_dir / f"{source_path.stem}-{counter}{source_path.suffix}"
-        counter += 1
-    shutil.move(str(source_path), str(destination))
+    destination = move_source_file(source_path, destination_dir)
     append_log(
         "discard",
         source_path.name,
@@ -887,12 +1042,7 @@ def move_to_discarded(source_path: Path, source_type: str = "voice") -> Path:
 def move_to_deferred(source_path: Path, source_type: str, reason: str) -> Path:
     ensure_dirs()
     destination_dir = DEFERRED_DIR / normalized_source_type(source_type)
-    destination = destination_dir / source_path.name
-    counter = 1
-    while destination.exists():
-        destination = destination_dir / f"{source_path.stem}-{counter}{source_path.suffix}"
-        counter += 1
-    shutil.move(str(source_path), str(destination))
+    destination = move_source_file(source_path, destination_dir)
     append_log(
         "defer",
         source_path.name,
@@ -1117,6 +1267,9 @@ def finalize_ingest(
     )
     print(f"Saved note: {output_path}")
     print(f"Archived source: {archived_path}")
+    routed = route_note(output_path, strict=False, verbose=False)
+    for route_output in routed:
+        print(f"Routed note package: {route_output}")
     send_notification(
         note["title"],
         "XHS note imported" if resolved_source == "xhs" else "Voice note parsed",
@@ -2025,6 +2178,31 @@ def parse_args() -> argparse.Namespace:
     maps_parser.add_argument("--output", type=Path, default=None)
     maps_parser.add_argument("--dry-run", action="store_true")
 
+    maps_task_parser = subparsers.add_parser(
+        "google-maps-task",
+        help="Create a JSON Google Maps save task for OpenClaw/Telegram",
+    )
+    maps_task_parser.add_argument("note_file", type=Path)
+    maps_task_parser.add_argument("--city", default="", help="Add a city to each Maps search query")
+    maps_task_parser.add_argument("--output", type=Path, default=None)
+    maps_task_parser.add_argument(
+        "--telegram-preview",
+        action="store_true",
+        help="Print a compact Telegram-ready preview after writing the task",
+    )
+
+    subparsers.add_parser(
+        "list-routes",
+        help="List generic note route registrations",
+    )
+
+    route_parser = subparsers.add_parser(
+        "route-note",
+        help="Route a tracked note to matching registered project inboxes",
+    )
+    route_parser.add_argument("note_file", type=Path)
+    route_parser.add_argument("--dry-run", action="store_true")
+
     review_parser = subparsers.add_parser("weekly-review", help="Legacy alias for weekly-snippet")
     review_parser.add_argument("--from", dest="date_from", type=str, default=None)
     review_parser.add_argument("--to", dest="date_to", type=str, default=None)
@@ -2235,6 +2413,23 @@ def main() -> None:
 
     if args.command == "google-maps-save-queue":
         google_maps_save_queue(args.note_file, args.city, args.output, args.dry_run)
+        return
+
+    if args.command == "google-maps-task":
+        google_maps_task(
+            args.note_file,
+            city=args.city,
+            output_path=args.output,
+            telegram_preview=args.telegram_preview,
+        )
+        return
+
+    if args.command == "list-routes":
+        list_routes()
+        return
+
+    if args.command == "route-note":
+        route_note(args.note_file, dry_run=args.dry_run)
         return
 
     if args.command in {"weekly-review", "weekly-snippet"}:
