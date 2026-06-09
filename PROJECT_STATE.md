@@ -63,9 +63,10 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 - New notes now include generic `extracted_items` generated from the transcript:
   calendar events, reminders, tasks, weak intents, and knowledge notes. Routing
   should prefer extracted item `route_categories` over free-form note topics.
-- `calendar-outbox` writes private review JSON under `outbox/calendar/` only for
-  high-confidence, calendar-ready extracted events. It does not create Google
-  Calendar events.
+- `calendar-outbox` writes private calendar candidate JSON under
+  `outbox/calendar/`; `calendar-dispatch` creates high-confidence resolved
+  events through a swappable provider or writes Telegram confirmation tasks for
+  lower-confidence candidates.
 
 ## Current Risks
 

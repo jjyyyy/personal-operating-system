@@ -18,9 +18,13 @@ import textwrap
 import urllib.error
 import urllib.request
 from pathlib import Path
+from calendar_flow import (
+    build_calendar_candidate,
+    create_event,
+    telegram_confirmation_package,
+)
 from extracted_items import (
     calendar_outbox_candidates,
-    calendar_outbox_package,
     extracted_item_schema,
     extracted_items_markdown,
     normalize_extracted_items,
@@ -83,6 +87,8 @@ MAPS_DIR = VOICE_ROOT / "maps"
 OUTBOX_DIR = VOICE_ROOT / "outbox"
 ROUTES_DIR = VOICE_ROOT / "routes"
 CALENDAR_OUTBOX_DIR = OUTBOX_DIR / "calendar"
+CALENDAR_CREATED_DIR = OUTBOX_DIR / "calendar-created"
+CALENDAR_TELEGRAM_DIR = OUTBOX_DIR / "calendar-telegram"
 INDEX_FILE = VOICE_ROOT / "index.json"
 CATALOG_FILE = VOICE_ROOT / "catalog.md"
 LOG_FILE = VOICE_ROOT / "log.md"
@@ -118,6 +124,8 @@ def ensure_dirs() -> None:
         MAPS_DIR,
         OUTBOX_DIR,
         CALENDAR_OUTBOX_DIR,
+        CALENDAR_CREATED_DIR,
+        CALENDAR_TELEGRAM_DIR,
         ROUTES_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
@@ -1120,15 +1128,12 @@ def calendar_outbox(limit: int = 20, dry_run: bool = False) -> list[Path]:
         for item in calendar_outbox_candidates(note_item):
             output_path = calendar_candidate_path(note_item, item)
             if output_path.exists() and not dry_run:
-                continue
+                existing = read_json_file(output_path, {})
+                if existing.get("version") == 2:
+                    continue
             outputs.append(output_path)
             if not dry_run:
-                package = calendar_outbox_package(
-                    item,
-                    str(note_item.get("note_file", "")),
-                    note_item.get("source_file"),
-                    str(note_item.get("title") or ""),
-                )
+                package = build_calendar_candidate(item, note_item)
                 write_extracted_json(output_path, package)
                 append_log(
                     "calendar-outbox",
@@ -1151,6 +1156,71 @@ def calendar_outbox(limit: int = 20, dry_run: bool = False) -> list[Path]:
     else:
         print("No calendar-ready extracted items found.")
     return outputs
+
+
+def calendar_telegram_path(candidate_path: Path) -> Path:
+    return CALENDAR_TELEGRAM_DIR / f"{candidate_path.stem}-telegram.json"
+
+
+def update_candidate(path: Path, candidate: dict) -> None:
+    write_extracted_json(path, candidate)
+
+
+def calendar_dispatch(
+    limit: int = 20,
+    dry_run: bool = False,
+    provider: str | None = None,
+) -> list[Path]:
+    ensure_dirs()
+    if limit <= 0:
+        raise SystemExit("--limit must be at least 1.")
+    selected_provider = provider or os.environ.get("VOICE_NOTES_CALENDAR_PROVIDER", "json")
+    handled: list[Path] = []
+    for candidate_path in sorted(CALENDAR_OUTBOX_DIR.glob("*.json")):
+        candidate = read_json_file(candidate_path, {})
+        status = str(candidate.get("status") or "")
+        if status == "needs_telegram_confirmation":
+            telegram_path = calendar_telegram_path(candidate_path)
+            handled.append(telegram_path)
+            if not dry_run and not telegram_path.exists():
+                candidate["candidate_path"] = path_for_index(candidate_path)
+                write_extracted_json(telegram_path, telegram_confirmation_package(candidate))
+                candidate["status"] = "telegram_confirmation_sent"
+                candidate["telegram_task"] = path_for_index(telegram_path)
+                update_candidate(candidate_path, candidate)
+                append_log(
+                    "calendar-telegram",
+                    str(candidate.get("text") or candidate_path.stem),
+                    [
+                        f"- Candidate: {path_for_index(candidate_path)}",
+                        f"- Telegram task: {path_for_index(telegram_path)}",
+                    ],
+                )
+            action = "Would send Telegram confirmation" if dry_run else "Telegram confirmation task"
+            print(f"{action}: {telegram_path}")
+        elif status == "ready_to_create":
+            handled.append(candidate_path)
+            if not dry_run:
+                result = create_event(candidate, selected_provider, CALENDAR_CREATED_DIR)
+                candidate["status"] = "created"
+                candidate["created_with_provider"] = result
+                update_candidate(candidate_path, candidate)
+                append_log(
+                    "calendar-create",
+                    str(candidate.get("text") or candidate_path.stem),
+                    [
+                        f"- Candidate: {path_for_index(candidate_path)}",
+                        f"- Provider: {selected_provider}",
+                        f"- Event: {result.get('event_id')}",
+                    ],
+                )
+            action = "Would create calendar event" if dry_run else "Created calendar event"
+            print(f"{action}: {candidate_path}")
+        if len(handled) >= limit:
+            break
+    if not handled:
+        print("No pending calendar candidates to dispatch.")
+    return handled
 
 
 def normalized_source_type(source_type: str | None) -> str:
@@ -2440,6 +2510,19 @@ def parse_args() -> argparse.Namespace:
     calendar_parser.add_argument("--limit", type=int, default=20)
     calendar_parser.add_argument("--dry-run", action="store_true")
 
+    calendar_dispatch_parser = subparsers.add_parser(
+        "calendar-dispatch",
+        help="Create ready calendar events or write Telegram confirmation tasks",
+    )
+    calendar_dispatch_parser.add_argument("--limit", type=int, default=20)
+    calendar_dispatch_parser.add_argument("--dry-run", action="store_true")
+    calendar_dispatch_parser.add_argument(
+        "--provider",
+        choices=["json", "apple"],
+        default=None,
+        help="Calendar provider; defaults to VOICE_NOTES_CALENDAR_PROVIDER or json",
+    )
+
     subparsers.add_parser("rebuild-catalog", help="Regenerate catalog.md from vault files")
     subparsers.add_parser("lint-wiki", help="Create a wiki health-check report")
     subparsers.add_parser("test-notification", help="Send a macOS notification without calling OpenAI")
@@ -2703,6 +2786,10 @@ def main() -> None:
 
     if args.command == "calendar-outbox":
         calendar_outbox(args.limit, args.dry_run)
+        return
+
+    if args.command == "calendar-dispatch":
+        calendar_dispatch(args.limit, args.dry_run, args.provider)
         return
 
     if args.command == "rebuild-catalog":

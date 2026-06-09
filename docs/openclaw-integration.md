@@ -67,4 +67,10 @@ strictInlineEval: true
 It is intentionally not bound to Telegram, WhatsApp, or another external channel.
 Use the OpenClaw main agent's existing Telegram binding for external delivery.
 
+Calendar candidates that need confirmation are written under
+`outbox/calendar-telegram/` as private JSON tasks. OpenClaw should send those
+through Telegram and write the user's approve/skip/edit result back to the task
+or a future result file. High-confidence resolved calendar candidates can be
+created by `calendar-dispatch` without Telegram confirmation.
+
 Heartbeat is disabled, so the agent does not make periodic model calls by itself.

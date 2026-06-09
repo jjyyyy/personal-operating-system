@@ -159,12 +159,7 @@ def calendar_outbox_package(
 def calendar_outbox_candidates(note_item: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = []
     for item in normalize_extracted_items(note_item.get("extracted_items", [])):
-        if (
-            item.get("item_type") == "calendar_event"
-            and item.get("calendar_ready") is True
-            and item.get("needs_confirmation") is False
-            and item.get("confidence") == "high"
-        ):
+        if item.get("item_type") == "calendar_event":
             candidates.append(item)
     return candidates
 

@@ -171,10 +171,16 @@ Write reviewable Google Calendar candidates from extracted items:
 ```bash
 python3 src/voice_notes_ai.py calendar-outbox --dry-run
 python3 src/voice_notes_ai.py calendar-outbox
+python3 src/voice_notes_ai.py calendar-dispatch --dry-run
+python3 src/voice_notes_ai.py calendar-dispatch --provider json
 ```
 
-This only writes private JSON under `outbox/calendar/` for high-confidence
-scheduled events. It does not create Google Calendar events automatically.
+`calendar-outbox` writes private JSON under `outbox/calendar/`. `calendar-dispatch`
+creates high-confidence resolved events through the configured provider and
+writes Telegram confirmation tasks for lower-confidence candidates under
+`outbox/calendar-telegram/`. The default provider is `json`, which records the
+would-be created event under `outbox/calendar-created/`; set
+`VOICE_NOTES_CALENDAR_PROVIDER=apple` to create events through macOS Calendar.
 
 With `uv`:
 

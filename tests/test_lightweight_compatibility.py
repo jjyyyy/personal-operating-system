@@ -37,6 +37,8 @@ class LightweightCompatibilityTests(unittest.TestCase):
             patch.object(voice_notes_ai, "MAPS_DIR", root / "maps"),
             patch.object(voice_notes_ai, "OUTBOX_DIR", root / "outbox"),
             patch.object(voice_notes_ai, "CALENDAR_OUTBOX_DIR", root / "outbox" / "calendar"),
+            patch.object(voice_notes_ai, "CALENDAR_CREATED_DIR", root / "outbox" / "calendar-created"),
+            patch.object(voice_notes_ai, "CALENDAR_TELEGRAM_DIR", root / "outbox" / "calendar-telegram"),
             patch.object(voice_notes_ai, "ROUTES_DIR", root / "routes"),
             patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
             patch.object(voice_notes_ai, "CATALOG_FILE", root / "catalog.md"),
@@ -92,32 +94,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             (inbox / "voice" / "voice-note.txt").write_text("voice", encoding="utf-8")
             (inbox / "random").mkdir()
             (inbox / "random" / "ignored.txt").write_text("ignored", encoding="utf-8")
-            with (
-                patch.object(voice_notes_ai, "VOICE_ROOT", root),
-                patch.object(voice_notes_ai, "INBOX_DIR", inbox),
-                patch.object(voice_notes_ai, "PROCESSED_DIR", root / "processed"),
-                patch.object(voice_notes_ai, "DISCARDED_DIR", root / "discarded"),
-                patch.object(voice_notes_ai, "DEFERRED_DIR", root / "deferred"),
-                patch.object(voice_notes_ai, "DAILY_DIR", root / "daily"),
-                patch.object(voice_notes_ai, "XHS_DIR", root / "xhs"),
-                patch.object(voice_notes_ai, "TOPICS_DIR", root / "topics"),
-                patch.object(voice_notes_ai, "REVIEWS_DIR", root / "reviews"),
-                patch.object(voice_notes_ai, "SNIPPETS_DIR", root / "snippets"),
-                patch.object(voice_notes_ai, "TEMPLATES_DIR", root / "templates"),
-                patch.object(voice_notes_ai, "LOGS_DIR", root / "logs"),
-                patch.object(voice_notes_ai, "STATE_DIR", root / "state"),
-                patch.object(voice_notes_ai, "MAPS_DIR", root / "maps"),
-                patch.object(voice_notes_ai, "OUTBOX_DIR", root / "outbox"),
-                patch.object(voice_notes_ai, "CALENDAR_OUTBOX_DIR", root / "outbox" / "calendar"),
-                patch.object(voice_notes_ai, "ROUTES_DIR", root / "routes"),
-                patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
-                patch.object(voice_notes_ai, "LOG_FILE", root / "log.md"),
-                patch.object(
-                    voice_notes_ai,
-                    "XHS_AUTO_STATE_FILE",
-                    root / "state" / "xhs-auto-imports.json",
-                ),
-            ):
+            with self.patch_vault_paths(root):
                 sources = voice_notes_ai.inbox_sources()
 
         self.assertEqual(
@@ -763,7 +740,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 )
             )
 
-    def test_calendar_outbox_writes_only_calendar_ready_high_confidence_items(self) -> None:
+    def test_calendar_outbox_resolves_high_confidence_event_and_dispatches_json_provider(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "index.json").write_text(
@@ -811,13 +788,65 @@ class LightweightCompatibilityTests(unittest.TestCase):
             with self.patch_vault_paths(root):
                 outputs = voice_notes_ai.calendar_outbox()
                 second_run = voice_notes_ai.calendar_outbox()
+                dispatched = voice_notes_ai.calendar_dispatch(provider="json")
 
             self.assertEqual(len(outputs), 1)
             self.assertEqual(second_run, [])
+            self.assertEqual(dispatched, outputs)
             payload = json.loads(outputs[0].read_text(encoding="utf-8"))
             self.assertEqual(payload["type"], "voice_notes_calendar_candidate")
-            self.assertEqual(payload["status"], "needs_review")
+            self.assertEqual(payload["version"], 2)
+            self.assertEqual(payload["status"], "created")
             self.assertEqual(payload["text"], "Massage appointment tomorrow at 3pm")
+            self.assertEqual(payload["event"]["start_datetime"], "2026-06-10T15:00:00+02:00")
+            self.assertEqual(payload["created_with_provider"]["provider"], "json")
+
+    def test_calendar_dispatch_sends_low_confidence_event_to_telegram(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "index.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "date": "2026-06-09",
+                            "title": "Maybe appointment",
+                            "topics": ["massage"],
+                            "people": [],
+                            "summary": "Maybe a massage.",
+                            "source": "voice",
+                            "source_file": "processed/voice/source.m4a",
+                            "note_file": "daily/maybe.md",
+                            "extracted_items": [
+                                {
+                                    "item_type": "calendar_event",
+                                    "text": "Maybe book massage tomorrow at 3pm",
+                                    "date_text": "tomorrow",
+                                    "time_text": "3pm",
+                                    "route_categories": ["calendar", "health"],
+                                    "calendar_ready": True,
+                                    "needs_confirmation": True,
+                                    "confidence": "medium",
+                                    "evidence": "maybe massage tomorrow at 3pm",
+                                },
+                            ],
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with self.patch_vault_paths(root):
+                candidates = voice_notes_ai.calendar_outbox()
+                telegram_tasks = voice_notes_ai.calendar_dispatch(provider="json")
+
+            self.assertEqual(len(candidates), 1)
+            self.assertEqual(len(telegram_tasks), 1)
+            candidate = json.loads(candidates[0].read_text(encoding="utf-8"))
+            telegram = json.loads(telegram_tasks[0].read_text(encoding="utf-8"))
+            self.assertEqual(candidate["status"], "telegram_confirmation_sent")
+            self.assertEqual(candidate["confirmation_channel"], "telegram")
+            self.assertEqual(telegram["type"], "voice_notes_calendar_confirmation")
+            self.assertIn("approve, skip, or edit", telegram["message"])
 
     def test_search_scope_separates_personal_and_xhs_notes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

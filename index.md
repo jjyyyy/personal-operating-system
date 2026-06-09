@@ -133,6 +133,7 @@ Write reviewable calendar candidates from extracted items:
 ```bash
 python3 src/voice_notes_ai.py calendar-outbox --dry-run
 python3 src/voice_notes_ai.py calendar-outbox
+python3 src/voice_notes_ai.py calendar-dispatch --dry-run
 ```
 
 Process one file:

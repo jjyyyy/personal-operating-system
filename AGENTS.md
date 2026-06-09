@@ -98,6 +98,7 @@ python3 src/voice_notes_ai.py google-maps-save-queue xhs/your-note.md --city Bar
 python3 src/voice_notes_ai.py list-routes
 python3 src/voice_notes_ai.py route-note daily/your-note.md --dry-run
 python3 src/voice_notes_ai.py calendar-outbox --dry-run
+python3 src/voice_notes_ai.py calendar-dispatch --dry-run
 python3 src/voice_notes_ai.py test-notification
 python3 src/voice_notes_ai.py weekly-snippet
 python3 src/voice_notes_ai.py monthly-snippet

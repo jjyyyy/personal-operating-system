@@ -76,6 +76,12 @@ outbox/google-maps/*
 !outbox/calendar/
 outbox/calendar/*
 !outbox/calendar/.gitkeep
+!outbox/calendar-created/
+outbox/calendar-created/*
+!outbox/calendar-created/.gitkeep
+!outbox/calendar-telegram/
+outbox/calendar-telegram/*
+!outbox/calendar-telegram/.gitkeep
 index.json
 catalog.md
 log.md
