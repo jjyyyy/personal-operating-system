@@ -10,6 +10,10 @@ Heartbeat: disabled
 Channel bindings: none
 ```
 
+This workspace is the `main` production worktree. OpenClaw and Telegram task
+delivery must not point at `/Users/jazzzz/Projects/voice-notes-dev`; see
+[deployment.md](deployment.md).
+
 ## Context
 
 OpenClaw injects these workspace files at the beginning of a session:

@@ -71,6 +71,9 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
   `calendar-dispatch --provider google` provider. `calendar-auth-google`
   performs OAuth without creating an event. OAuth is connected to the primary
   calendar; credentials and token are stored under ignored `secrets/`.
+- Production automation stays on `main` at `/Users/jazzzz/Projects/voice-notes`;
+  development uses the `dev` worktree at
+  `/Users/jazzzz/Projects/voice-notes-dev`.
 
 ## Current Risks
 

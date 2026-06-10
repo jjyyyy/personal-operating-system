@@ -342,6 +342,10 @@ For scheduled processing, install:
 crontab automation/voice-notes.crontab
 ```
 
+Cron and external integrations run from the `main` production worktree.
+Feature development uses a separate `dev` worktree; see
+[docs/deployment.md](docs/deployment.md).
+
 The crontab runs snippet checks daily instead of relying on one exact weekly or
 monthly moment. `scheduled-snippet weekly` targets the latest completed week and
 skips if that snippet already exists; `scheduled-snippet monthly` does the same
