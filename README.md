@@ -185,6 +185,7 @@ Direct Google Calendar support is available as a provider after OAuth setup; see
 [docs/google-calendar-provider-investigation.md](docs/google-calendar-provider-investigation.md).
 
 ```bash
+python3 src/voice_notes_ai.py calendar-auth-google
 VOICE_NOTES_CALENDAR_PROVIDER=google python3 src/voice_notes_ai.py calendar-dispatch
 ```
 

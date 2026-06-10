@@ -111,6 +111,20 @@ def load_google_credentials(config: GoogleCalendarConfig):
     return creds
 
 
+def authorize_google_calendar(
+    config: GoogleCalendarConfig | None = None,
+) -> dict[str, Any]:
+    resolved_config = config or google_calendar_config()
+    creds = load_google_credentials(resolved_config)
+    return {
+        "provider": "google",
+        "status": "authorized",
+        "calendar_id": resolved_config.calendar_id,
+        "token_path": str(resolved_config.token_path),
+        "scopes": list(creds.scopes or [GOOGLE_CALENDAR_SCOPE]),
+    }
+
+
 def create_google_calendar_event(
     candidate: dict[str, Any],
     config: GoogleCalendarConfig | None = None,

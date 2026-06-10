@@ -36,6 +36,7 @@ from google_maps_flow import (
     render_maps_save_markdown,
     render_telegram_preview,
 )
+from google_calendar_provider import authorize_google_calendar
 from note_router import (
     deliver_item_route_package,
     deliver_route_package,
@@ -2523,6 +2524,11 @@ def parse_args() -> argparse.Namespace:
         help="Calendar provider; defaults to VOICE_NOTES_CALENDAR_PROVIDER or json",
     )
 
+    subparsers.add_parser(
+        "calendar-auth-google",
+        help="Authorize Google Calendar without creating an event",
+    )
+
     subparsers.add_parser("rebuild-catalog", help="Regenerate catalog.md from vault files")
     subparsers.add_parser("lint-wiki", help="Create a wiki health-check report")
     subparsers.add_parser("test-notification", help="Send a macOS notification without calling OpenAI")
@@ -2790,6 +2796,12 @@ def main() -> None:
 
     if args.command == "calendar-dispatch":
         calendar_dispatch(args.limit, args.dry_run, args.provider)
+        return
+
+    if args.command == "calendar-auth-google":
+        result = authorize_google_calendar()
+        print(f"Google Calendar authorized for: {result['calendar_id']}")
+        print(f"Token saved: {result['token_path']}")
         return
 
     if args.command == "rebuild-catalog":

@@ -136,6 +136,7 @@ Write reviewable calendar candidates from extracted items:
 python3 src/voice_notes_ai.py calendar-outbox --dry-run
 python3 src/voice_notes_ai.py calendar-outbox
 python3 src/voice_notes_ai.py calendar-dispatch --dry-run
+python3 src/voice_notes_ai.py calendar-auth-google
 ```
 
 Process one file:

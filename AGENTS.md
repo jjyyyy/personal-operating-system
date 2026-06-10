@@ -99,6 +99,7 @@ python3 src/voice_notes_ai.py list-routes
 python3 src/voice_notes_ai.py route-note daily/your-note.md --dry-run
 python3 src/voice_notes_ai.py calendar-outbox --dry-run
 python3 src/voice_notes_ai.py calendar-dispatch --dry-run
+python3 src/voice_notes_ai.py calendar-auth-google
 python3 src/voice_notes_ai.py test-notification
 python3 src/voice_notes_ai.py weekly-snippet
 python3 src/voice_notes_ai.py monthly-snippet

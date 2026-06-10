@@ -16,7 +16,12 @@ sys.path.insert(0, str(SRC))
 
 import voice_notes_ai  # noqa: E402
 import calendar_flow  # noqa: E402
-from google_calendar_provider import google_event_body  # noqa: E402
+from google_calendar_provider import (  # noqa: E402
+    GOOGLE_CALENDAR_SCOPE,
+    GoogleCalendarConfig,
+    authorize_google_calendar,
+    google_event_body,
+)
 
 
 class LightweightCompatibilityTests(unittest.TestCase):
@@ -892,6 +897,27 @@ class LightweightCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(result["provider"], "google")
         self.assertEqual(result["event_id"], "abc")
+
+    def test_google_calendar_authorization_does_not_create_event(self) -> None:
+        config = GoogleCalendarConfig(
+            calendar_id="primary",
+            credentials_path=Path("/tmp/credentials.json"),
+            token_path=Path("/tmp/token.json"),
+            send_updates="none",
+        )
+        credentials = type("Credentials", (), {"scopes": [GOOGLE_CALENDAR_SCOPE]})()
+
+        with patch(
+            "google_calendar_provider.load_google_credentials",
+            return_value=credentials,
+        ) as load_credentials:
+            result = authorize_google_calendar(config)
+
+        load_credentials.assert_called_once_with(config)
+        self.assertEqual(result["status"], "authorized")
+        self.assertEqual(result["calendar_id"], "primary")
+        self.assertEqual(result["token_path"], "/tmp/token.json")
+        self.assertEqual(result["scopes"], [GOOGLE_CALENDAR_SCOPE])
 
     def test_search_scope_separates_personal_and_xhs_notes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

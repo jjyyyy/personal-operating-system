@@ -68,8 +68,9 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
   events through a swappable provider or writes Telegram confirmation tasks for
   lower-confidence candidates.
 - Direct Google Calendar API support is implemented as an optional
-  `calendar-dispatch --provider google` provider. It needs OAuth credentials
-  under ignored `secrets/` before first use.
+  `calendar-dispatch --provider google` provider. `calendar-auth-google`
+  performs OAuth without creating an event; it still needs a desktop client
+  file under ignored `secrets/` before first use.
 
 ## Current Risks
 

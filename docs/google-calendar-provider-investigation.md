@@ -144,20 +144,25 @@ task artifacts.
 1. Create an OAuth desktop client in Google Cloud and download credentials.
 2. Save credentials at `secrets/google-calendar-credentials.json`.
 3. Install dependencies from `pyproject.toml`.
-4. Run a dispatch with:
+4. Authorize without creating an event:
 
    ```bash
-   VOICE_NOTES_CALENDAR_PROVIDER=google python3 src/voice_notes_ai.py calendar-dispatch
+   python3 src/voice_notes_ai.py calendar-auth-google
    ```
 
-5. The first run opens a local browser OAuth flow and writes
+5. The command opens a local browser OAuth flow and writes
    `secrets/google-calendar-token.json`.
 6. To test command wiring without creating an event:
 
    ```bash
    python3 src/voice_notes_ai.py calendar-dispatch --dry-run --provider google
    ```
-7. Add `calendar-auth-google` later if a no-event auth command is useful.
+7. Run a real dispatch with:
+
+   ```bash
+   VOICE_NOTES_CALENDAR_PROVIDER=google python3 src/voice_notes_ai.py calendar-dispatch
+   ```
+
 8. Keep `json` provider as the default until the OAuth token is stable.
 
 ## Risks
