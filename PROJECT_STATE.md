@@ -74,6 +74,9 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 - Production automation stays on `main` at `/Users/jazzzz/Projects/voice-notes`;
   development uses the `dev` worktree at
   `/Users/jazzzz/Projects/voice-notes-dev`.
+- Production cron now runs the Google Calendar candidate/dispatch cycle two
+  minutes after inbox processing. High-confidence events create directly;
+  ambiguous events remain in the Telegram confirmation outbox.
 
 ## Current Risks
 

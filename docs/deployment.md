@@ -10,10 +10,15 @@
 Production integrations must use only the production path:
 
 - cron: `automation/voice-notes.crontab`
+- Google Calendar dispatch: offset cron job using `--provider google`
 - optional LaunchAgent: `automation/com.jazzzz.voice-notes.watch.plist.example`
 - OpenClaw agent workspace: `/Users/jazzzz/Projects/voice-notes`
 - Telegram delivery: OpenClaw main agent reads production `outbox/`
 - Google Calendar OAuth: production `secrets/`
+
+The calendar cron writes ambiguous candidates to the production Telegram
+outbox. OpenClaw owns delivery and approval; the development worktree does not
+read or write that queue.
 
 The development worktree intentionally has no production `.env`, OAuth
 credentials, inbox, processed sources, notes, outbox tasks, or logs.
