@@ -69,8 +69,8 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
   lower-confidence candidates.
 - Direct Google Calendar API support is implemented as an optional
   `calendar-dispatch --provider google` provider. `calendar-auth-google`
-  performs OAuth without creating an event; it still needs a desktop client
-  file under ignored `secrets/` before first use.
+  performs OAuth without creating an event. OAuth is connected to the primary
+  calendar; credentials and token are stored under ignored `secrets/`.
 
 ## Current Risks
 
@@ -103,4 +103,4 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
    a target-side inbox processor for routed exercise/injury/diet notes.
 8. Migrate target route manifests from broad `topics_any` lists to
    `route_categories_any` subscriptions.
-9. Set up Google Calendar OAuth credentials and run one real provider smoke test.
+9. Run one real Google Calendar provider smoke test with a disposable event.

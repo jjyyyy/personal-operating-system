@@ -108,6 +108,7 @@ def load_google_credentials(config: GoogleCalendarConfig):
             creds = flow.run_local_server(port=0)
         config.token_path.parent.mkdir(parents=True, exist_ok=True)
         config.token_path.write_text(creds.to_json(), encoding="utf-8")
+        config.token_path.chmod(0o600)
     return creds
 
 
