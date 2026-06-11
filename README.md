@@ -353,11 +353,15 @@ for the latest completed month. This makes laptop sleep less likely to lose a
 snippet run. See `docs/action-button-flow.md` for the macOS Full Disk Access
 step required when cron reads an iCloud inbox.
 
-Voice recordings wait ten minutes before processing so a short interrupted
-thought can be continued in a second recording. Nearby recordings are merged
-only when continuation language or a high-confidence semantic check identifies
-the same thought or event. Override the candidate window with
-`VOICE_NOTES_CONTINUATION_WINDOW_SECONDS`.
+Voice recordings process independently as soon as their files are stable. If a
+later note contains explicit continuation language, depends on the previous
+note, or clearly completes the same specific event, the daily-note layer folds
+it into the previous note. Original sources and downstream route packages stay
+independent. Merged transcripts label each recording with its capture time.
+
+By default, voice recordings made before 04:00 belong to the previous personal
+day. Set `VOICE_NOTES_DAY_ROLLOVER_HOUR` to change that boundary; an explicit
+`--date` always wins.
 
 The calendar job runs two minutes after each inbox cycle. It writes calendar
 candidates, creates high-confidence events through Google Calendar, and leaves

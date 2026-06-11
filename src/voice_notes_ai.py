@@ -23,15 +23,6 @@ from calendar_flow import (
     create_event,
     telegram_confirmation_package,
 )
-from capture_sessions import (
-    archive_capture_session,
-    combined_transcript,
-    has_explicit_continuation,
-    inbox_capture_groups,
-    model_continuation_decision,
-    read_capture_transcript,
-    split_capture_sessions,
-)
 from extracted_items import (
     calendar_outbox_candidates,
     extracted_item_schema,
@@ -56,6 +47,17 @@ from note_router import (
 from note_corrections import apply_note_correction, parse_cli_list
 from transcription_service import read_source_bytes, transcribe
 from video_ingestion import build_video_content_package, video_evidence_text
+from voice_note_merging import (
+    continuation_decision,
+    local_continuation_signal,
+    merged_recordings,
+    merged_source_files,
+    note_date_for_recording,
+    previous_voice_item,
+    raw_transcript_from_markdown,
+    source_recorded_at,
+    timestamped_transcript,
+)
 from xhs_import import download_xhs_video, fetch_xhs_note
 
 
@@ -599,6 +601,11 @@ def note_markdown(note: dict) -> str:
         source_details = "\n".join(details) + "\n\n"
     raw_heading = "Raw Transcript" if note["source"] == "voice" else "Imported Content"
     source_frontmatter = ""
+    recordings_frontmatter = ""
+    if note.get("recordings"):
+        recordings_frontmatter = (
+            f"recordings: {json.dumps(note['recordings'], ensure_ascii=False)}\n"
+        )
     if note.get("source_url"):
         source_frontmatter += (
             f"source_url: {json.dumps(note['source_url'], ensure_ascii=False)}\n"
@@ -614,6 +621,7 @@ def note_markdown(note: dict) -> str:
         f"date: {note['date']}\n"
         f"source: {note['source']}\n"
         f"{source_frontmatter}"
+        f"{recordings_frontmatter}"
         f"topics: {json.dumps(note['topics'], ensure_ascii=False)}\n"
         f"extracted_items: {json.dumps(extracted_items, ensure_ascii=False)}\n"
         f"people: {json.dumps(note['people'], ensure_ascii=False)}\n"
@@ -643,7 +651,7 @@ def save_note(note: dict, source_file: Path) -> Path:
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     filename = f"{note['date']}-{slugify(note['title'])}-{timestamp}.md"
     output_dir = XHS_DIR if note.get("source") == "xhs" else DAILY_DIR
-    output_path = output_dir / filename
+    output_path = unique_destination(output_dir, Path(filename))
     output_path.write_text(note_markdown(note), encoding="utf-8")
 
     index = read_index()
@@ -659,6 +667,8 @@ def save_note(note: dict, source_file: Path) -> Path:
             "source_url": note.get("source_url"),
             "source_kind": note.get("source_kind"),
             "source_file": path_for_index(source_file),
+            "source_files": note.get("source_files", [path_for_index(source_file)]),
+            "recordings": note.get("recordings", []),
             "note_file": path_for_index(output_path),
         }
     )
@@ -797,14 +807,15 @@ def delete_note(note_path: Path, dry_run: bool = False) -> tuple[Path, Path | No
     ensure_dirs()
     resolved_note = vault_path(note_path)
     item, items = find_index_item_for_note(resolved_note)
-    raw_source = item.get("source_file")
-    source_path = vault_path(raw_source) if raw_source else None
+    raw_sources = item.get("source_files") or [item.get("source_file")]
+    source_paths = [vault_path(raw) for raw in raw_sources if raw]
+    source_path = source_paths[0] if source_paths else None
 
     removed = [
         f"- Note: {path_for_index(resolved_note)}",
     ]
-    if source_path:
-        removed.append(f"- Source: {path_for_index(source_path)}")
+    for path in source_paths:
+        removed.append(f"- Source: {path_for_index(path)}")
 
     if dry_run:
         print("Would delete:")
@@ -813,15 +824,15 @@ def delete_note(note_path: Path, dry_run: bool = False) -> tuple[Path, Path | No
         return resolved_note, source_path
 
     delete_path(resolved_note)
-    if source_path:
-        delete_path(source_path)
+    for path in source_paths:
+        delete_path(path)
 
     write_index([entry for entry in items if entry is not item])
     rebuild_catalog()
     append_log("delete", item.get("title", resolved_note.stem), removed)
     print(f"Deleted note: {resolved_note}")
-    if source_path:
-        print(f"Deleted source: {source_path}")
+    for path in source_paths:
+        print(f"Deleted source: {path}")
     return resolved_note, source_path
 
 
@@ -1445,6 +1456,126 @@ def xhs_source_text(imported: dict) -> str:
     return "\n".join(source_lines).strip()
 
 
+def voice_day_rollover_hour() -> int:
+    hour = env_int("VOICE_NOTES_DAY_ROLLOVER_HOUR", 4)
+    if not 0 <= hour <= 12:
+        raise SystemExit("VOICE_NOTES_DAY_ROLLOVER_HOUR must be between 0 and 12.")
+    return hour
+
+
+def resolved_capture_date(
+    source_path: Path,
+    source_type: str,
+    note_date: dt.date | None,
+) -> dt.date:
+    if note_date is not None:
+        return note_date
+    if source_type == "voice":
+        return note_date_for_recording(
+            source_recorded_at(source_path),
+            rollover_hour=voice_day_rollover_hour(),
+        )
+    return dt.date.today()
+
+
+def maybe_merge_voice_note(
+    current_note_path: Path,
+    *,
+    api_key: str,
+) -> Path:
+    current_item, items = find_index_item_for_note(current_note_path)
+    previous_item = previous_voice_item(current_item, items)
+    if previous_item is None:
+        return current_note_path
+
+    previous_path = vault_path(previous_item["note_file"])
+    previous_transcript = raw_transcript_from_markdown(
+        previous_path.read_text(encoding="utf-8")
+    )
+    current_transcript = raw_transcript_from_markdown(
+        current_note_path.read_text(encoding="utf-8")
+    )
+    if not previous_transcript or not current_transcript:
+        return current_note_path
+    shared_topics = {
+        str(topic).casefold() for topic in previous_item.get("topics", [])
+    } & {
+        str(topic).casefold() for topic in current_item.get("topics", [])
+    }
+    if not local_continuation_signal(current_transcript) and not shared_topics:
+        return current_note_path
+
+    model = os.environ.get(
+        "OPENAI_CONTINUATION_MODEL",
+        os.environ.get("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini"),
+    )
+    decision = continuation_decision(
+        previous_transcript,
+        current_transcript,
+        api_key=api_key,
+        model=model,
+        api_post_json=api_post_json,
+    )
+    if not decision.should_merge:
+        return current_note_path
+
+    recordings = merged_recordings(
+        previous_item,
+        current_item,
+        resolve_source=vault_path,
+    )
+    combined_transcript_text = (
+        previous_transcript.rstrip() + "\n\n" + current_transcript.lstrip()
+    )
+
+    merged = summarize_capture(
+        combined_transcript_text,
+        previous_item["date"],
+        "voice",
+        api_key,
+    )
+    merged["source"] = "voice"
+    merged["raw_transcript"] = combined_transcript_text
+    merged["recordings"] = recordings
+    merged["extracted_items"] = [
+        *previous_item.get("extracted_items", []),
+        *current_item.get("extracted_items", []),
+    ]
+    source_files = merged_source_files(previous_item, current_item)
+    merged["source_files"] = source_files
+
+    previous_path.write_text(note_markdown(merged), encoding="utf-8")
+    previous_item.update(
+        {
+            "date": merged["date"],
+            "title": merged["title"],
+            "topics": merged["topics"],
+            "extracted_items": normalize_extracted_items(
+                merged.get("extracted_items", [])
+            ),
+            "people": merged["people"],
+            "summary": merged["summary"],
+            "source_files": source_files,
+            "recordings": recordings,
+        }
+    )
+    delete_path(current_note_path)
+    write_index([item for item in items if item is not current_item])
+    rebuild_catalog()
+    append_log(
+        "merge",
+        merged["title"],
+        [
+            f"- Kept note: {obsidian_link(previous_path, merged['title'])}",
+            f"- Folded note: {path_for_index(current_note_path)}",
+            f"- Signal: {decision.signal}",
+            f"- Recordings: {len(recordings)}",
+        ],
+    )
+    print(f"Merged continuation into: {previous_path}")
+    return previous_path
+
+
 def ingest(
     source_path: Path,
     note_date: dt.date | None = None,
@@ -1456,7 +1587,12 @@ def ingest(
     if source_type is None and is_xhs_share_source(source_path):
         return ingest_xhs_share_source(source_path)
     api_key = require_api_key()
-    resolved_date = (note_date or dt.date.today()).isoformat()
+    resolved_source = source_type or infer_source_type(source_path)
+    resolved_date = resolved_capture_date(
+        source_path,
+        resolved_source,
+        note_date,
+    ).isoformat()
 
     if is_transcript_file(source_path):
         print(f"Reading transcript {source_path.name}...")
@@ -1467,7 +1603,6 @@ def ingest(
         print(f"Transcribing {source_path.name}...")
         transcript = transcribe(source_path, api_key)["text"]
 
-    resolved_source = source_type or infer_source_type(source_path)
     print("Generating structured note...")
     note = summarize_capture(transcript, resolved_date, resolved_source, api_key)
     note["source"] = resolved_source
@@ -1475,8 +1610,27 @@ def ingest(
         source_url, source_author = source_metadata_from_text(transcript)
         note["source_url"] = source_url
         note["source_author"] = source_author
-    note["raw_transcript"] = transcript
-    return finalize_ingest(note, source_path, resolved_source)
+    if resolved_source == "voice":
+        recorded_at = source_recorded_at(source_path)
+        note["raw_transcript"] = timestamped_transcript([(recorded_at, transcript)])
+        note["recordings"] = [{"recorded_at": recorded_at.isoformat()}]
+    else:
+        note["raw_transcript"] = transcript
+    output_path = finalize_ingest(note, source_path, resolved_source)
+    if resolved_source == "voice":
+        try:
+            return maybe_merge_voice_note(output_path, api_key=api_key)
+        except (SystemExit, Exception) as exc:
+            print(f"Retrospective note merge skipped: {exc}")
+            append_log(
+                "merge-skip",
+                note["title"],
+                [
+                    f"- Note: {obsidian_link(output_path, note['title'])}",
+                    f"- Error: {exc}",
+                ],
+            )
+    return output_path
 
 
 def finalize_ingest(
@@ -1485,6 +1639,11 @@ def finalize_ingest(
     resolved_source: str,
 ) -> Path:
     archived_path = archive_source(source_path, resolved_source)
+    if resolved_source == "voice":
+        recordings = note.get("recordings", [])
+        if recordings:
+            recordings[-1]["source_file"] = path_for_index(archived_path)
+        note["source_files"] = [path_for_index(archived_path)]
     return finalize_archived_ingest(note, archived_path, resolved_source)
 
 
@@ -1520,70 +1679,11 @@ def finalize_archived_ingest(
     return output_path
 
 
-def finalize_voice_transcript(
-    source_paths: list[Path],
-    transcripts: list[str],
-    note_date: dt.date | None,
-    api_key: str,
-) -> Path:
-    resolved_date = (note_date or dt.date.today()).isoformat()
-    transcript = combined_transcript(transcripts)
-    print("Generating structured note...")
-    note = summarize_capture(transcript, resolved_date, "voice", api_key)
-    note["source"] = "voice"
-    note["raw_transcript"] = transcript
-    if len(source_paths) == 1:
-        return finalize_ingest(note, source_paths[0], "voice")
-    archived_path = archive_capture_session(
-        source_paths,
-        processed_voice_dir=PROCESSED_DIR / "voice",
-        move_source_file=move_source_file,
-    )
-    return finalize_archived_ingest(note, archived_path, "voice")
-
-
 def ingest_voice_sources(
     source_paths: list[Path],
     note_date: dt.date | None = None,
 ) -> list[Path]:
-    if not source_paths:
-        return []
-    api_key = require_api_key()
-    transcripts = []
-    for path in source_paths:
-        action = "Reading transcript" if is_transcript_file(path) else "Transcribing"
-        print(f"{action} {path.name}...")
-        transcripts.append(
-            read_capture_transcript(
-                path,
-                api_key=api_key,
-                is_transcript_file=is_transcript_file,
-                read_source_text=read_source_text,
-                transcribe=transcribe,
-            )
-        )
-    continuation_model = os.environ.get(
-        "OPENAI_CONTINUATION_MODEL",
-        os.environ.get("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini"),
-    )
-    sessions = split_capture_sessions(
-        source_paths,
-        transcripts,
-        should_merge=lambda previous, next_item: (
-            has_explicit_continuation(next_item)
-            or model_continuation_decision(
-                previous,
-                next_item,
-                api_key=api_key,
-                model=continuation_model,
-                api_post_json=api_post_json,
-            )
-        ),
-    )
-    return [
-        finalize_voice_transcript(paths, texts, note_date, api_key)
-        for paths, texts in sessions
-    ]
+    return [ingest(path, note_date, "voice") for path in source_paths]
 
 
 def prepare_xhs_source(
@@ -1877,13 +1977,6 @@ def process_source_safely(source_path: Path, note_date: dt.date | None = None) -
     return False
 
 
-def continuation_window_seconds() -> int:
-    return max(
-        0,
-        env_int("VOICE_NOTES_CONTINUATION_WINDOW_SECONDS", 600),
-    )
-
-
 def process_voice_group_safely(
     source_paths: list[Path],
     note_date: dt.date | None = None,
@@ -1911,13 +2004,7 @@ def process_voice_group_safely(
 
 
 def inbox_processing_groups(sources: list[Path]) -> list[list[Path]]:
-    return inbox_capture_groups(
-        sources,
-        max_gap_seconds=continuation_window_seconds(),
-        is_voice_source=lambda path: (
-            infer_source_type(path) == "voice" and not is_xhs_share_source(path)
-        ),
-    )
+    return [[path] for path in sorted(sources)]
 
 
 def inbox_sources() -> list[Path]:

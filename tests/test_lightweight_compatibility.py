@@ -123,7 +123,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             {"root.txt", "xhs-share-test.txt", "voice-note.txt"},
         )
 
-    def test_inbox_processing_groups_nearby_voice_recordings(self) -> None:
+    def test_inbox_processing_does_not_delay_nearby_voice_recordings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             voice_dir = root / "inbox" / "voice"
@@ -140,10 +140,11 @@ class LightweightCompatibilityTests(unittest.TestCase):
                     [first, second, xhs]
                 )
 
-        self.assertIn([first, second], groups)
+        self.assertIn([first], groups)
+        self.assertIn([second], groups)
         self.assertIn([xhs], groups)
 
-    def test_voice_capture_group_merges_explicit_continuation_once(self) -> None:
+    def test_later_note_retroactively_merges_without_combining_sources(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             inbox = root / "inbox" / "voice"
@@ -156,14 +157,75 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 first.name: "今天早上的网球课先练了正手。",
                 second.name: "继续说今天早上的网球课，还有一个就是反手。",
             }
+            first_note = {
+                "date": "2026-06-11",
+                "title": "网球课正手记录",
+                "source": "voice",
+                "topics": ["网球"],
+                "summary": "正手练习。",
+                "action_items": [],
+                "people": ["教练"],
+                "annotations": [],
+                "extracted_items": [],
+                "raw_transcript": "",
+            }
+            second_note = {
+                **first_note,
+                "title": "网球课反手记录",
+                "summary": "反手练习。",
+            }
+            merged_note = {
+                **first_note,
+                "title": "网球课记录",
+                "summary": "一次完整的网球课记录。",
+            }
+
+            with (
+                self.patch_vault_paths(root),
+                patch.object(voice_notes_ai, "require_api_key", return_value="test"),
+                patch.object(
+                    voice_notes_ai, "transcribe",
+                    side_effect=lambda path, _: {"text": transcripts[path.name]},
+                ),
+                patch.object(
+                    voice_notes_ai,
+                    "summarize_capture",
+                    side_effect=[first_note, second_note, merged_note],
+                ),
+                patch.object(
+                    voice_notes_ai, "route_note", return_value=[]
+                ) as route_mock,
+                patch.object(voice_notes_ai, "send_notification", return_value=True),
+            ):
+                outputs = voice_notes_ai.ingest_voice_sources([first, second])
+
+            index = json.loads((root / "index.json").read_text(encoding="utf-8"))
+            output_text = (root / index[0]["note_file"]).read_text(encoding="utf-8")
+
+        self.assertEqual(len(outputs), 2)
+        self.assertEqual(len(index), 1)
+        self.assertEqual(len(index[0]["source_files"]), 2)
+        self.assertEqual(route_mock.call_count, 2)
+        self.assertIn("[2026-06-11 12:48:42]", output_text)
+        self.assertIn("[2026-06-11 12:53:17]", output_text)
+
+    def test_merge_check_failure_does_not_fail_ingest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inbox = root / "inbox" / "voice"
+            inbox.mkdir(parents=True)
+            first = inbox / "Voice Note - 2026-06-11-124842.m4a"
+            second = inbox / "Voice Note - 2026-06-11-125317.m4a"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
             note = {
                 "date": "2026-06-11",
                 "title": "网球课记录",
                 "source": "voice",
                 "topics": ["网球"],
-                "summary": "一次完整的网球课记录。",
+                "summary": "网球课。",
                 "action_items": [],
-                "people": ["教练"],
+                "people": [],
                 "annotations": [],
                 "extracted_items": [],
                 "raw_transcript": "",
@@ -174,26 +236,31 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 patch.object(voice_notes_ai, "require_api_key", return_value="test"),
                 patch.object(
                     voice_notes_ai,
-                    "read_capture_transcript",
-                    side_effect=lambda path, **_: transcripts[path.name],
+                    "transcribe",
+                    side_effect=[
+                        {"text": "第一段网球课"},
+                        {"text": "第二段网球课"},
+                    ],
                 ),
-                patch.object(voice_notes_ai, "summarize_capture", return_value=note),
+                patch.object(
+                    voice_notes_ai,
+                    "summarize_capture",
+                    side_effect=[dict(note), dict(note)],
+                ),
+                patch.object(
+                    voice_notes_ai,
+                    "continuation_decision",
+                    side_effect=SystemExit("network unavailable"),
+                ),
                 patch.object(voice_notes_ai, "route_note", return_value=[]),
                 patch.object(voice_notes_ai, "send_notification", return_value=True),
             ):
                 outputs = voice_notes_ai.ingest_voice_sources([first, second])
 
             index = json.loads((root / "index.json").read_text(encoding="utf-8"))
-            source_bundle = root / index[0]["source_file"]
-            bundle_exists = source_bundle.is_dir()
-            manifest_exists = (source_bundle / "session.json").exists()
-            output_text = outputs[0].read_text(encoding="utf-8")
 
-        self.assertEqual(len(outputs), 1)
-        self.assertEqual(len(index), 1)
-        self.assertTrue(bundle_exists)
-        self.assertTrue(manifest_exists)
-        self.assertIn("[Recording 2]", output_text)
+        self.assertEqual(len(outputs), 2)
+        self.assertEqual(len(index), 2)
 
     def test_nested_inbox_folder_infers_source_type(self) -> None:
         source = Path("/tmp/inbox/xhs/xhs-share-test.txt")

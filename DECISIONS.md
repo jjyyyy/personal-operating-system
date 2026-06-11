@@ -13,13 +13,19 @@ development worktree.
 This avoids branch switches changing live automation while preserving one Git
 history. Runtime data and secrets remain local to the production worktree.
 
-## 2026-06-11: Merge Interrupted Voice Captures Before Ingest
+## 2026-06-11: Retrospectively Merge Only The Daily-Note Layer
 
-Nearby voice recordings are candidates for one capture session, not automatic
-matches. Explicit continuation language merges directly; ambiguous pairs require
-a high-confidence semantic decision. Unrelated nearby recordings remain
-separate.
+Process and archive every voice capture immediately. A later daily note may
+fold into the previous voice note when one of three signals is high-confidence:
+explicit continuation, unresolved reference to the earlier note, or completion
+of the same specific event or train of thought. Elapsed time is not a merge
+criterion.
 
-The decision happens before note generation and routing. A merged note archives
-all original recordings in one source bundle, preventing duplicate downstream
-routes and corrections.
+Keep source archives and downstream route packages independent. The surviving
+daily note records all source paths and labels transcript sections with capture
+times. This avoids delaying ingestion or coupling calendar/project routing to
+personal-note presentation.
+
+Voice captures before 04:00 belong to the previous personal day by default.
+`VOICE_NOTES_DAY_ROLLOVER_HOUR` can change the boundary, and explicit CLI dates
+override it.

@@ -1,6 +1,6 @@
 # Project State
 
-Last reviewed: 2026-06-09
+Last reviewed: 2026-06-11
 
 For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 `README.md`. This file is only a handoff note for someone returning to the work.
@@ -77,13 +77,16 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 - Production cron now runs the Google Calendar candidate/dispatch cycle two
   minutes after inbox processing. High-confidence events create directly;
   ambiguous events remain in the Telegram confirmation outbox.
-- Nearby interrupted voice recordings now wait ten minutes and pass through
-  continuation detection before note generation. Merged captures keep every
-  original recording in one `processed/voice/voice-session-*` bundle.
+- Voice captures process immediately and independently. A later note can
+  retrospectively fold into the preceding daily note on one of three
+  high-confidence continuation signals; source archives and downstream routes
+  remain separate.
+- Merged daily notes retain source paths and timestamp each transcript section.
+  Voice captures before 04:00 default to the previous personal day.
 
 ## Current Risks
 
-- `python3 -m unittest discover -s tests` passed on 2026-06-09.
+- `python3 -m unittest discover -s tests` passed 69 tests on 2026-06-11.
 - Latest lint flagged seed topic notes without source links:
   `topics/ai-development.md`, `topics/career.md`, `topics/health.md`,
   `topics/ideas.md`, and `topics/system-design.md`.
