@@ -77,6 +77,9 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 - Production cron now runs the Google Calendar candidate/dispatch cycle two
   minutes after inbox processing. High-confidence events create directly;
   ambiguous events remain in the Telegram confirmation outbox.
+- Nearby interrupted voice recordings now wait ten minutes and pass through
+  continuation detection before note generation. Merged captures keep every
+  original recording in one `processed/voice/voice-session-*` bundle.
 
 ## Current Risks
 

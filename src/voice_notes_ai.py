@@ -23,6 +23,15 @@ from calendar_flow import (
     create_event,
     telegram_confirmation_package,
 )
+from capture_sessions import (
+    archive_capture_session,
+    combined_transcript,
+    has_explicit_continuation,
+    inbox_capture_groups,
+    model_continuation_decision,
+    read_capture_transcript,
+    split_capture_sessions,
+)
 from extracted_items import (
     calendar_outbox_candidates,
     extracted_item_schema,
@@ -1467,6 +1476,14 @@ def finalize_ingest(
     resolved_source: str,
 ) -> Path:
     archived_path = archive_source(source_path, resolved_source)
+    return finalize_archived_ingest(note, archived_path, resolved_source)
+
+
+def finalize_archived_ingest(
+    note: dict,
+    archived_path: Path,
+    resolved_source: str,
+) -> Path:
     if note.get("source_kind") == "video":
         note["source_artifact"] = path_for_index(
             archived_path / "content-package.json"
@@ -1492,6 +1509,72 @@ def finalize_ingest(
         "XHS note imported" if resolved_source == "xhs" else "Voice note parsed",
     )
     return output_path
+
+
+def finalize_voice_transcript(
+    source_paths: list[Path],
+    transcripts: list[str],
+    note_date: dt.date | None,
+    api_key: str,
+) -> Path:
+    resolved_date = (note_date or dt.date.today()).isoformat()
+    transcript = combined_transcript(transcripts)
+    print("Generating structured note...")
+    note = summarize_capture(transcript, resolved_date, "voice", api_key)
+    note["source"] = "voice"
+    note["raw_transcript"] = transcript
+    if len(source_paths) == 1:
+        return finalize_ingest(note, source_paths[0], "voice")
+    archived_path = archive_capture_session(
+        source_paths,
+        processed_voice_dir=PROCESSED_DIR / "voice",
+        move_source_file=move_source_file,
+    )
+    return finalize_archived_ingest(note, archived_path, "voice")
+
+
+def ingest_voice_sources(
+    source_paths: list[Path],
+    note_date: dt.date | None = None,
+) -> list[Path]:
+    if not source_paths:
+        return []
+    api_key = require_api_key()
+    transcripts = []
+    for path in source_paths:
+        action = "Reading transcript" if is_transcript_file(path) else "Transcribing"
+        print(f"{action} {path.name}...")
+        transcripts.append(
+            read_capture_transcript(
+                path,
+                api_key=api_key,
+                is_transcript_file=is_transcript_file,
+                read_source_text=read_source_text,
+                transcribe=transcribe,
+            )
+        )
+    continuation_model = os.environ.get(
+        "OPENAI_CONTINUATION_MODEL",
+        os.environ.get("OPENAI_SUMMARY_MODEL", "gpt-4.1-mini"),
+    )
+    sessions = split_capture_sessions(
+        source_paths,
+        transcripts,
+        should_merge=lambda previous, next_item: (
+            has_explicit_continuation(next_item)
+            or model_continuation_decision(
+                previous,
+                next_item,
+                api_key=api_key,
+                model=continuation_model,
+                api_post_json=api_post_json,
+            )
+        ),
+    )
+    return [
+        finalize_voice_transcript(paths, texts, note_date, api_key)
+        for paths, texts in sessions
+    ]
 
 
 def prepare_xhs_source(
@@ -1785,6 +1868,49 @@ def process_source_safely(source_path: Path, note_date: dt.date | None = None) -
     return False
 
 
+def continuation_window_seconds() -> int:
+    return max(
+        0,
+        env_int("VOICE_NOTES_CONTINUATION_WINDOW_SECONDS", 600),
+    )
+
+
+def process_voice_group_safely(
+    source_paths: list[Path],
+    note_date: dt.date | None = None,
+) -> bool:
+    try:
+        ingest_voice_sources(source_paths, note_date)
+        return True
+    except SystemExit as exc:
+        error_message = str(exc)
+    except Exception as exc:
+        error_message = f"{type(exc).__name__}: {exc}"
+
+    names = ", ".join(path.name for path in source_paths)
+    print(f"Failed to process voice capture group {names}: {error_message}")
+    append_log(
+        "error",
+        "voice capture group",
+        [
+            f"- Sources: {names}",
+            f"- Error: {error_message}",
+        ],
+    )
+    send_notification(f"{names}: {error_message}", "Voice note failed")
+    return False
+
+
+def inbox_processing_groups(sources: list[Path]) -> list[list[Path]]:
+    return inbox_capture_groups(
+        sources,
+        max_gap_seconds=continuation_window_seconds(),
+        is_voice_source=lambda path: (
+            infer_source_type(path) == "voice" and not is_xhs_share_source(path)
+        ),
+    )
+
+
 def inbox_sources() -> list[Path]:
     ensure_dirs()
     sources = [
@@ -1904,8 +2030,11 @@ def process_inbox(note_date: dt.date | None = None, settle_seconds: int = 0) -> 
         print("No supported files found in inbox.")
         return
 
-    for source_path in sources:
-        process_source_safely(source_path, note_date)
+    for group in inbox_processing_groups(sources):
+        if len(group) > 1 and all(infer_source_type(path) == "voice" for path in group):
+            process_voice_group_safely(group, note_date)
+        else:
+            process_source_safely(group[0], note_date)
 
 
 def watch_inbox(
@@ -1920,8 +2049,13 @@ def watch_inbox(
     while True:
         sources = ready_inbox_sources(settle_seconds)
         if sources:
-            for source_path in sources:
-                process_source_safely(source_path, note_date)
+            for group in inbox_processing_groups(sources):
+                if len(group) > 1 and all(
+                    infer_source_type(path) == "voice" for path in group
+                ):
+                    process_voice_group_safely(group, note_date)
+                else:
+                    process_source_safely(group[0], note_date)
         elif once:
             print("No ready files found in inbox.")
 

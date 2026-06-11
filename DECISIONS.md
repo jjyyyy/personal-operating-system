@@ -12,3 +12,14 @@ development worktree.
 
 This avoids branch switches changing live automation while preserving one Git
 history. Runtime data and secrets remain local to the production worktree.
+
+## 2026-06-11: Merge Interrupted Voice Captures Before Ingest
+
+Nearby voice recordings are candidates for one capture session, not automatic
+matches. Explicit continuation language merges directly; ambiguous pairs require
+a high-confidence semantic decision. Unrelated nearby recordings remain
+separate.
+
+The decision happens before note generation and routing. A merged note archives
+all original recordings in one source bundle, preventing duplicate downstream
+routes and corrections.

@@ -353,6 +353,12 @@ for the latest completed month. This makes laptop sleep less likely to lose a
 snippet run. See `docs/action-button-flow.md` for the macOS Full Disk Access
 step required when cron reads an iCloud inbox.
 
+Voice recordings wait ten minutes before processing so a short interrupted
+thought can be continued in a second recording. Nearby recordings are merged
+only when continuation language or a high-confidence semantic check identifies
+the same thought or event. Override the candidate window with
+`VOICE_NOTES_CONTINUATION_WINDOW_SECONDS`.
+
 The calendar job runs two minutes after each inbox cycle. It writes calendar
 candidates, creates high-confidence events through Google Calendar, and leaves
 ambiguous candidates under `outbox/calendar-telegram/` for OpenClaw.
