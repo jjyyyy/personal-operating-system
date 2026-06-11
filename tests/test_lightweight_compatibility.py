@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 import errno
 import os
@@ -14,7 +15,12 @@ from unittest.mock import patch
 SRC = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(SRC))
 
-import voice_notes_ai  # noqa: E402
+import ingestion_service  # noqa: E402
+import integration_service  # noqa: E402
+import knowledge_service  # noqa: E402
+import openai_note_service  # noqa: E402
+import vault_service  # noqa: E402
+import voice_notes_config  # noqa: E402
 import calendar_flow  # noqa: E402
 from google_calendar_provider import (  # noqa: E402
     GOOGLE_CALENDAR_SCOPE,
@@ -27,48 +33,57 @@ from google_calendar_provider import (  # noqa: E402
 class LightweightCompatibilityTests(unittest.TestCase):
     def test_normalize_note_title_removes_repeated_date_prefix(self):
         self.assertEqual(
-            voice_notes_ai.normalize_note_title("2026-06-11 网球课技术总结", "2026-06-11"),
+            openai_note_service.normalize_note_title("2026-06-11 网球课技术总结", "2026-06-11"),
             "网球课技术总结",
         )
         self.assertEqual(
-            voice_notes_ai.normalize_note_title("2026-06-11：网球课技术总结", "2026-06-11"),
+            openai_note_service.normalize_note_title("2026-06-11：网球课技术总结", "2026-06-11"),
             "网球课技术总结",
         )
         self.assertEqual(
-            voice_notes_ai.normalize_note_title("网球课技术总结", "2026-06-11"),
+            openai_note_service.normalize_note_title("网球课技术总结", "2026-06-11"),
             "网球课技术总结",
         )
 
     @contextmanager
     def patch_vault_paths(self, root: Path):
+        values = {
+            "VOICE_ROOT": root,
+            "INBOX_DIR": root / "inbox",
+            "PROCESSED_DIR": root / "processed",
+            "DISCARDED_DIR": root / "discarded",
+            "DEFERRED_DIR": root / "deferred",
+            "DAILY_DIR": root / "daily",
+            "XHS_DIR": root / "xhs",
+            "TOPICS_DIR": root / "topics",
+            "REVIEWS_DIR": root / "reviews",
+            "SNIPPETS_DIR": root / "snippets",
+            "TEMPLATES_DIR": root / "templates",
+            "LOGS_DIR": root / "logs",
+            "STATE_DIR": root / "state",
+            "MAPS_DIR": root / "maps",
+            "OUTBOX_DIR": root / "outbox",
+            "CALENDAR_OUTBOX_DIR": root / "outbox" / "calendar",
+            "CALENDAR_CREATED_DIR": root / "outbox" / "calendar-created",
+            "CALENDAR_TELEGRAM_DIR": root / "outbox" / "calendar-telegram",
+            "ROUTES_DIR": root / "routes",
+            "INDEX_FILE": root / "index.json",
+            "CATALOG_FILE": root / "catalog.md",
+            "LOG_FILE": root / "log.md",
+            "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
+        }
+        modules = [
+            voice_notes_config,
+            vault_service,
+            ingestion_service,
+            integration_service,
+            knowledge_service,
+        ]
         patches = [
-            patch.object(voice_notes_ai, "VOICE_ROOT", root),
-            patch.object(voice_notes_ai, "INBOX_DIR", root / "inbox"),
-            patch.object(voice_notes_ai, "PROCESSED_DIR", root / "processed"),
-            patch.object(voice_notes_ai, "DISCARDED_DIR", root / "discarded"),
-            patch.object(voice_notes_ai, "DEFERRED_DIR", root / "deferred"),
-            patch.object(voice_notes_ai, "DAILY_DIR", root / "daily"),
-            patch.object(voice_notes_ai, "XHS_DIR", root / "xhs"),
-            patch.object(voice_notes_ai, "TOPICS_DIR", root / "topics"),
-            patch.object(voice_notes_ai, "REVIEWS_DIR", root / "reviews"),
-            patch.object(voice_notes_ai, "SNIPPETS_DIR", root / "snippets"),
-            patch.object(voice_notes_ai, "TEMPLATES_DIR", root / "templates"),
-            patch.object(voice_notes_ai, "LOGS_DIR", root / "logs"),
-            patch.object(voice_notes_ai, "STATE_DIR", root / "state"),
-            patch.object(voice_notes_ai, "MAPS_DIR", root / "maps"),
-            patch.object(voice_notes_ai, "OUTBOX_DIR", root / "outbox"),
-            patch.object(voice_notes_ai, "CALENDAR_OUTBOX_DIR", root / "outbox" / "calendar"),
-            patch.object(voice_notes_ai, "CALENDAR_CREATED_DIR", root / "outbox" / "calendar-created"),
-            patch.object(voice_notes_ai, "CALENDAR_TELEGRAM_DIR", root / "outbox" / "calendar-telegram"),
-            patch.object(voice_notes_ai, "ROUTES_DIR", root / "routes"),
-            patch.object(voice_notes_ai, "INDEX_FILE", root / "index.json"),
-            patch.object(voice_notes_ai, "CATALOG_FILE", root / "catalog.md"),
-            patch.object(voice_notes_ai, "LOG_FILE", root / "log.md"),
-            patch.object(
-                voice_notes_ai,
-                "XHS_AUTO_STATE_FILE",
-                root / "state" / "xhs-auto-imports.json",
-            ),
+            patch.object(module, name, value)
+            for module in modules
+            for name, value in values.items()
+            if hasattr(module, name)
         ]
         exits = [item.__enter__() for item in patches]
         try:
@@ -90,8 +105,8 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with patch.object(voice_notes_ai, "INBOX_DIR", inbox):
-                output, source_type = voice_notes_ai.capture_manifest_as_regular_source(manifest)
+            with patch.object(knowledge_service, "INBOX_DIR", inbox):
+                output, source_type = knowledge_service.capture_manifest_as_regular_source(manifest)
 
             content = output.read_text(encoding="utf-8")
 
@@ -116,7 +131,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             (inbox / "random").mkdir()
             (inbox / "random" / "ignored.txt").write_text("ignored", encoding="utf-8")
             with self.patch_vault_paths(root):
-                sources = voice_notes_ai.inbox_sources()
+                sources = ingestion_service.inbox_sources()
 
         self.assertEqual(
             {path.name for path in sources},
@@ -136,7 +151,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 path.write_text("capture", encoding="utf-8")
 
             with self.patch_vault_paths(root):
-                groups = voice_notes_ai.inbox_processing_groups(
+                groups = ingestion_service.inbox_processing_groups(
                     [first, second, xhs]
                 )
 
@@ -182,22 +197,22 @@ class LightweightCompatibilityTests(unittest.TestCase):
 
             with (
                 self.patch_vault_paths(root),
-                patch.object(voice_notes_ai, "require_api_key", return_value="test"),
+                patch.object(ingestion_service, "require_api_key", return_value="test"),
                 patch.object(
-                    voice_notes_ai, "transcribe",
+                    ingestion_service, "transcribe",
                     side_effect=lambda path, _: {"text": transcripts[path.name]},
                 ),
                 patch.object(
-                    voice_notes_ai,
+                    ingestion_service,
                     "summarize_capture",
                     side_effect=[first_note, second_note, merged_note],
                 ),
                 patch.object(
-                    voice_notes_ai, "route_note", return_value=[]
+                    ingestion_service, "route_note", return_value=[]
                 ) as route_mock,
-                patch.object(voice_notes_ai, "send_notification", return_value=True),
+                patch.object(ingestion_service, "send_notification", return_value=True),
             ):
-                outputs = voice_notes_ai.ingest_voice_sources([first, second])
+                outputs = ingestion_service.ingest_voice_sources([first, second])
 
             index = json.loads((root / "index.json").read_text(encoding="utf-8"))
             output_text = (root / index[0]["note_file"]).read_text(encoding="utf-8")
@@ -233,9 +248,9 @@ class LightweightCompatibilityTests(unittest.TestCase):
 
             with (
                 self.patch_vault_paths(root),
-                patch.object(voice_notes_ai, "require_api_key", return_value="test"),
+                patch.object(ingestion_service, "require_api_key", return_value="test"),
                 patch.object(
-                    voice_notes_ai,
+                    ingestion_service,
                     "transcribe",
                     side_effect=[
                         {"text": "第一段网球课"},
@@ -243,19 +258,19 @@ class LightweightCompatibilityTests(unittest.TestCase):
                     ],
                 ),
                 patch.object(
-                    voice_notes_ai,
+                    ingestion_service,
                     "summarize_capture",
                     side_effect=[dict(note), dict(note)],
                 ),
                 patch.object(
-                    voice_notes_ai,
+                    ingestion_service,
                     "continuation_decision",
                     side_effect=SystemExit("network unavailable"),
                 ),
-                patch.object(voice_notes_ai, "route_note", return_value=[]),
-                patch.object(voice_notes_ai, "send_notification", return_value=True),
+                patch.object(ingestion_service, "route_note", return_value=[]),
+                patch.object(ingestion_service, "send_notification", return_value=True),
             ):
-                outputs = voice_notes_ai.ingest_voice_sources([first, second])
+                outputs = ingestion_service.ingest_voice_sources([first, second])
 
             index = json.loads((root / "index.json").read_text(encoding="utf-8"))
 
@@ -264,7 +279,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
 
     def test_nested_inbox_folder_infers_source_type(self) -> None:
         source = Path("/tmp/inbox/xhs/xhs-share-test.txt")
-        self.assertEqual(voice_notes_ai.infer_source_type(source), "xhs")
+        self.assertEqual(ingestion_service.infer_source_type(source), "xhs")
 
     def test_delete_note_removes_note_source_index_and_rebuilds_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -289,7 +304,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             ]
             (root / "index.json").write_text(json.dumps(index), encoding="utf-8")
             with self.patch_vault_paths(root):
-                voice_notes_ai.delete_note(Path("xhs/note.md"))
+                vault_service.delete_note(Path("xhs/note.md"))
                 remaining_index = json.loads((root / "index.json").read_text(encoding="utf-8"))
 
             self.assertFalse(note.exists())
@@ -322,7 +337,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             ]
             (root / "index.json").write_text(json.dumps(index), encoding="utf-8")
             with self.patch_vault_paths(root):
-                voice_notes_ai.delete_note(Path("xhs/video.md"))
+                vault_service.delete_note(Path("xhs/video.md"))
 
             self.assertFalse(note.exists())
             self.assertFalse(source.exists())
@@ -350,7 +365,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             ]
             (root / "index.json").write_text(json.dumps(index), encoding="utf-8")
             with self.patch_vault_paths(root):
-                voice_notes_ai.delete_note(Path("daily/note.md"), dry_run=True)
+                vault_service.delete_note(Path("daily/note.md"), dry_run=True)
                 remaining_index = json.loads((root / "index.json").read_text(encoding="utf-8"))
 
             self.assertTrue(note.exists())
@@ -365,7 +380,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             note.write_text("orphan", encoding="utf-8")
             (root / "index.json").write_text("[]", encoding="utf-8")
             with self.patch_vault_paths(root), self.assertRaisesRegex(SystemExit, "not tracked"):
-                voice_notes_ai.delete_note(Path("daily/note.md"))
+                vault_service.delete_note(Path("daily/note.md"))
 
     def test_discard_deferred_moves_source_to_discarded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -374,7 +389,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             source.parent.mkdir(parents=True)
             source.write_text("http://xhslink.com/o/example", encoding="utf-8")
             with self.patch_vault_paths(root):
-                discarded = voice_notes_ai.discard_deferred(
+                discarded = ingestion_service.discard_deferred(
                     [Path("xhs-share.txt")],
                     source_type="xhs",
                 )
@@ -398,9 +413,9 @@ class LightweightCompatibilityTests(unittest.TestCase):
 
             with (
                 self.patch_vault_paths(root),
-                patch.object(voice_notes_ai.shutil, "move", side_effect=fake_move),
+                patch.object(vault_service.shutil, "move", side_effect=fake_move),
             ):
-                destination = voice_notes_ai.move_source_file(source, destination_dir)
+                destination = vault_service.move_source_file(source, destination_dir)
 
             self.assertFalse(source.exists())
             self.assertEqual(destination, destination_dir / "xhs-share.txt")
@@ -430,11 +445,11 @@ class LightweightCompatibilityTests(unittest.TestCase):
 
             with (
                 self.patch_vault_paths(root),
-                patch.object(voice_notes_ai.shutil, "move", side_effect=fake_move),
-                patch.object(voice_notes_ai.Path, "unlink", fake_unlink),
+                patch.object(vault_service.shutil, "move", side_effect=fake_move),
+                patch.object(vault_service.Path, "unlink", fake_unlink),
                 self.assertRaises(PermissionError),
             ):
-                voice_notes_ai.move_source_file(source, destination_dir)
+                vault_service.move_source_file(source, destination_dir)
 
             self.assertTrue(source.exists())
             self.assertFalse((destination_dir / "xhs-share.txt").exists())
@@ -453,9 +468,9 @@ class LightweightCompatibilityTests(unittest.TestCase):
 
             with (
                 self.patch_vault_paths(root),
-                patch.object(voice_notes_ai.shutil, "move", side_effect=fake_move),
+                patch.object(vault_service.shutil, "move", side_effect=fake_move),
             ):
-                destination = voice_notes_ai.move_source_file(source, destination_dir)
+                destination = vault_service.move_source_file(source, destination_dir)
 
             self.assertFalse(source.exists())
             self.assertEqual(destination, destination_dir / "xhs-share.txt")
@@ -522,7 +537,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             ]
             (root / "index.json").write_text(json.dumps(index), encoding="utf-8")
             with self.patch_vault_paths(root):
-                voice_notes_ai.correct_note(
+                vault_service.correct_note(
                     Path("daily/note.md"),
                     reason="volley means tennis volley, not volleyball",
                     title="Tennis Volley Note",
@@ -581,7 +596,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.patch_vault_paths(root):
-                output = voice_notes_ai.google_maps_save_queue(
+                output = integration_service.google_maps_save_queue(
                     Path("xhs/barcelona-food.md"),
                     city="Barcelona",
                 )
@@ -613,7 +628,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.patch_vault_paths(root):
-                output = voice_notes_ai.google_maps_task(
+                output = integration_service.google_maps_task(
                     Path("xhs/barcelona-food.md"),
                     city="Barcelona",
                 )
@@ -649,7 +664,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.patch_vault_paths(root):
-                output = voice_notes_ai.google_maps_task(Path("xhs/duplicate-food.md"))
+                output = integration_service.google_maps_task(Path("xhs/duplicate-food.md"))
 
             payload = json.loads(output.read_text(encoding="utf-8"))
             ids = [candidate["id"] for candidate in payload["candidates"]]
@@ -703,7 +718,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             )
 
             with self.patch_vault_paths(root):
-                outputs = voice_notes_ai.route_note(Path("daily/note.md"))
+                outputs = integration_service.route_note(Path("daily/note.md"))
 
             self.assertEqual(len(outputs), 1)
             self.assertEqual(
@@ -759,7 +774,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             )
 
             with self.patch_vault_paths(root):
-                outputs = voice_notes_ai.route_note(Path("daily/food.md"))
+                outputs = integration_service.route_note(Path("daily/food.md"))
 
             self.assertEqual(
                 outputs[0].parent.resolve(),
@@ -808,7 +823,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 "raw_transcript": "Massage appointment tomorrow at 3pm. Tennis volley timing.",
             }
             with self.patch_vault_paths(root):
-                output = voice_notes_ai.save_note(note, source)
+                output = vault_service.save_note(note, source)
                 index = json.loads((root / "index.json").read_text(encoding="utf-8"))
 
             markdown = output.read_text(encoding="utf-8")
@@ -884,7 +899,7 @@ class LightweightCompatibilityTests(unittest.TestCase):
             )
 
             with self.patch_vault_paths(root):
-                outputs = voice_notes_ai.route_note(Path("daily/mixed.md"))
+                outputs = integration_service.route_note(Path("daily/mixed.md"))
 
             self.assertEqual(len(outputs), 2)
             payloads = [json.loads(path.read_text(encoding="utf-8")) for path in outputs]
@@ -946,9 +961,9 @@ class LightweightCompatibilityTests(unittest.TestCase):
             )
 
             with self.patch_vault_paths(root):
-                outputs = voice_notes_ai.calendar_outbox()
-                second_run = voice_notes_ai.calendar_outbox()
-                dispatched = voice_notes_ai.calendar_dispatch(provider="json")
+                outputs = integration_service.calendar_outbox()
+                second_run = integration_service.calendar_outbox()
+                dispatched = integration_service.calendar_dispatch(provider="json")
 
             self.assertEqual(len(outputs), 1)
             self.assertEqual(second_run, [])
@@ -996,8 +1011,8 @@ class LightweightCompatibilityTests(unittest.TestCase):
             )
 
             with self.patch_vault_paths(root):
-                candidates = voice_notes_ai.calendar_outbox()
-                telegram_tasks = voice_notes_ai.calendar_dispatch(provider="json")
+                candidates = integration_service.calendar_outbox()
+                telegram_tasks = integration_service.calendar_dispatch(provider="json")
 
             self.assertEqual(len(candidates), 1)
             self.assertEqual(len(telegram_tasks), 1)
@@ -1088,50 +1103,42 @@ class LightweightCompatibilityTests(unittest.TestCase):
                 "---\nsource: xhs\n---\n小红书网球知识\n",
                 encoding="utf-8",
             )
-            with (
-                patch.object(voice_notes_ai, "DAILY_DIR", daily),
-                patch.object(voice_notes_ai, "XHS_DIR", xhs_dir),
-                patch.object(voice_notes_ai, "TOPICS_DIR", Path(directory) / "topics"),
-                patch.object(voice_notes_ai, "REVIEWS_DIR", Path(directory) / "reviews"),
-                patch.object(voice_notes_ai, "SNIPPETS_DIR", Path(directory) / "snippets"),
-                patch.object(voice_notes_ai, "VOICE_ROOT", Path(directory)),
-                patch.object(voice_notes_ai, "ensure_dirs"),
-            ):
-                personal_results = voice_notes_ai.search_notes("网球", "personal")
-                xhs_results = voice_notes_ai.search_notes("网球", "xhs")
+            with self.patch_vault_paths(Path(directory)):
+                personal_results = knowledge_service.search_notes("网球", "personal")
+                xhs_results = knowledge_service.search_notes("网球", "xhs")
 
         self.assertEqual({path.name for path, _, _ in personal_results}, {"personal.md"})
         self.assertEqual({path.name for path, _, _ in xhs_results}, {"xhs.md"})
 
     def test_review_presets_resolve_completed_periods(self) -> None:
-        today = voice_notes_ai.dt.date(2026, 6, 7)
+        today = dt.date(2026, 6, 7)
         self.assertEqual(
-            voice_notes_ai.resolve_review_range("weekly", None, None, today),
-            (voice_notes_ai.dt.date(2026, 6, 1), voice_notes_ai.dt.date(2026, 6, 7)),
+            knowledge_service.resolve_review_range("weekly", None, None, today),
+            (dt.date(2026, 6, 1), dt.date(2026, 6, 7)),
         )
         self.assertEqual(
-            voice_notes_ai.resolve_review_range("monthly", None, None, today),
-            (voice_notes_ai.dt.date(2026, 5, 1), voice_notes_ai.dt.date(2026, 5, 31)),
+            knowledge_service.resolve_review_range("monthly", None, None, today),
+            (dt.date(2026, 5, 1), dt.date(2026, 5, 31)),
         )
         self.assertEqual(
-            voice_notes_ai.resolve_review_range("yearly", None, None, today),
-            (voice_notes_ai.dt.date(2025, 1, 1), voice_notes_ai.dt.date(2025, 12, 31)),
+            knowledge_service.resolve_review_range("yearly", None, None, today),
+            (dt.date(2025, 1, 1), dt.date(2025, 12, 31)),
         )
 
     def test_scheduled_weekly_uses_latest_completed_week(self) -> None:
         self.assertEqual(
-            voice_notes_ai.resolve_scheduled_snippet_range(
+            knowledge_service.resolve_scheduled_snippet_range(
                 "weekly",
-                voice_notes_ai.dt.date(2026, 6, 8),
+                dt.date(2026, 6, 8),
             ),
-            (voice_notes_ai.dt.date(2026, 6, 1), voice_notes_ai.dt.date(2026, 6, 7)),
+            (dt.date(2026, 6, 1), dt.date(2026, 6, 7)),
         )
         self.assertEqual(
-            voice_notes_ai.resolve_scheduled_snippet_range(
+            knowledge_service.resolve_scheduled_snippet_range(
                 "weekly",
-                voice_notes_ai.dt.date(2026, 6, 7),
+                dt.date(2026, 6, 7),
             ),
-            (voice_notes_ai.dt.date(2026, 5, 25), voice_notes_ai.dt.date(2026, 5, 31)),
+            (dt.date(2026, 5, 25), dt.date(2026, 5, 31)),
         )
 
     def test_scheduled_snippet_skips_existing_completed_week_without_api(self) -> None:
@@ -1143,14 +1150,14 @@ class LightweightCompatibilityTests(unittest.TestCase):
             with (
                 self.patch_vault_paths(root),
                 patch.object(
-                    voice_notes_ai,
+                    knowledge_service,
                     "require_api_key",
                     side_effect=AssertionError("should not call OpenAI"),
                 ),
             ):
-                output = voice_notes_ai.scheduled_snippet(
+                output = knowledge_service.scheduled_snippet(
                     "weekly",
-                    today=voice_notes_ai.dt.date(2026, 6, 8),
+                    today=dt.date(2026, 6, 8),
                 )
 
         self.assertEqual(output, snippet)
@@ -1164,18 +1171,15 @@ class LightweightCompatibilityTests(unittest.TestCase):
             xhs.mkdir()
             (daily / "2026-06-07-personal.md").write_text("personal tennis", encoding="utf-8")
             (xhs / "2026-06-07-import.md").write_text("imported tennis", encoding="utf-8")
-            with (
-                patch.object(voice_notes_ai, "DAILY_DIR", daily),
-                patch.object(voice_notes_ai, "XHS_DIR", xhs),
-            ):
-                personal = voice_notes_ai.load_note_files_in_range(
-                    voice_notes_ai.dt.date(2026, 6, 7),
-                    voice_notes_ai.dt.date(2026, 6, 7),
+            with self.patch_vault_paths(root):
+                personal = knowledge_service.load_note_files_in_range(
+                    dt.date(2026, 6, 7),
+                    dt.date(2026, 6, 7),
                     "personal",
                 )
-                imported = voice_notes_ai.load_note_files_in_range(
-                    voice_notes_ai.dt.date(2026, 6, 7),
-                    voice_notes_ai.dt.date(2026, 6, 7),
+                imported = knowledge_service.load_note_files_in_range(
+                    dt.date(2026, 6, 7),
+                    dt.date(2026, 6, 7),
                     "xhs",
                 )
 
@@ -1203,12 +1207,12 @@ class LightweightCompatibilityTests(unittest.TestCase):
             }
             with (
                 self.patch_vault_paths(root),
-                patch.object(voice_notes_ai, "require_api_key", return_value="test-key"),
-                patch.object(voice_notes_ai, "api_post_json", return_value=response),
+                patch.object(knowledge_service, "require_api_key", return_value="test-key"),
+                patch.object(knowledge_service, "api_post_json", return_value=response),
             ):
-                output = voice_notes_ai.weekly_review(
-                    voice_notes_ai.dt.date(2026, 6, 1),
-                    voice_notes_ai.dt.date(2026, 6, 7),
+                output = knowledge_service.weekly_review(
+                    dt.date(2026, 6, 1),
+                    dt.date(2026, 6, 7),
                 )
 
         self.assertEqual(output.parent, snippets)

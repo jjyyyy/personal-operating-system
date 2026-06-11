@@ -61,7 +61,8 @@ Use `catalog.md` only when broad discovery is needed. It is intentionally separa
 - `docs/proposals/`: detailed proposals that are not yet implemented.
 - `docs/proposals/2026-06-07-unified-inbox-reminders-xhs.md`: archived decision record explaining why the multi-source platform direction was reduced.
 - `automation/`: optional LaunchAgent template for `watch-inbox`.
-- `src/voice_notes_ai.py`: local processing script.
+- `src/voice_notes_ai.py`: thin command entrypoint; implementation is split
+  across `voice_notes_cli.py`, `voice_notes_config.py`, and domain services.
 - `index.json`: machine-readable daily-note index.
 - `catalog.md`: generated content catalog for broad discovery.
 - `log.md`: append-only operation timeline.

@@ -14,7 +14,22 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(SRC))
 
 import xhs_import  # noqa: E402
-import voice_notes_ai  # noqa: E402
+import ingestion_service  # noqa: E402
+import integration_service  # noqa: E402
+import vault_service  # noqa: E402
+import voice_notes_config  # noqa: E402
+
+
+def patch_paths(stack: ExitStack, paths: dict[str, Path]) -> None:
+    for module in [
+        voice_notes_config,
+        vault_service,
+        integration_service,
+        ingestion_service,
+    ]:
+        for name, value in paths.items():
+            if hasattr(module, name):
+                stack.enter_context(patch.object(module, name, value))
 
 
 class FakeResponse:
@@ -164,11 +179,10 @@ class XHSImportTests(unittest.TestCase):
                 "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
             with ExitStack() as stack:
-                for name, value in paths.items():
-                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                patch_paths(stack, paths)
                 stack.enter_context(
                     patch.object(
-                    voice_notes_ai,
+                    ingestion_service,
                     "fetch_xhs_note",
                     return_value={
                         "url": "https://www.xiaohongshu.com/explore/note-id",
@@ -180,20 +194,20 @@ class XHSImportTests(unittest.TestCase):
                 )
                 stack.enter_context(
                     patch.object(
-                        voice_notes_ai,
+                        ingestion_service,
                         "require_api_key",
                         return_value="test-key",
                     )
                 )
                 stack.enter_context(
                     patch.object(
-                        voice_notes_ai,
+                        ingestion_service,
                         "summarize_capture",
                         return_value=structured,
                     )
                 )
-                stack.enter_context(patch.object(voice_notes_ai, "send_notification"))
-                note_path = voice_notes_ai.ingest_xhs(
+                stack.enter_context(patch.object(ingestion_service, "send_notification"))
+                note_path = ingestion_service.ingest_xhs(
                     "https://xhslink.com/example"
                 )
                 markdown = note_path.read_text(encoding="utf-8")
@@ -247,11 +261,10 @@ class XHSImportTests(unittest.TestCase):
                 "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
             with ExitStack() as stack:
-                for name, value in paths.items():
-                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                patch_paths(stack, paths)
                 stack.enter_context(
                     patch.object(
-                        voice_notes_ai,
+                        ingestion_service,
                         "fetch_xhs_note",
                         return_value={
                             "url": "https://www.xiaohongshu.com/explore/note-id",
@@ -264,18 +277,18 @@ class XHSImportTests(unittest.TestCase):
                 )
                 stack.enter_context(
                     patch.dict(
-                        voice_notes_ai.os.environ,
+                        ingestion_service.os.environ,
                         {"VOICE_NOTES_AUTO_XHS_IMPORTS": "1"},
                     )
                 )
                 stack.enter_context(
-                    patch.object(voice_notes_ai, "require_api_key", return_value="test-key")
+                    patch.object(ingestion_service, "require_api_key", return_value="test-key")
                 )
                 stack.enter_context(
-                    patch.object(voice_notes_ai, "summarize_capture", return_value=structured)
+                    patch.object(ingestion_service, "summarize_capture", return_value=structured)
                 )
-                stack.enter_context(patch.object(voice_notes_ai, "send_notification"))
-                ok = voice_notes_ai.process_source_safely(share)
+                stack.enter_context(patch.object(ingestion_service, "send_notification"))
+                ok = ingestion_service.process_source_safely(share)
 
             processed = paths["PROCESSED_DIR"] / "xhs" / share.name
             markdown_files = list((root / "xhs").glob("*.md"))
@@ -355,11 +368,10 @@ class XHSImportTests(unittest.TestCase):
                 return package
 
             with ExitStack() as stack:
-                for name, value in paths.items():
-                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                patch_paths(stack, paths)
                 stack.enter_context(
                     patch.object(
-                        voice_notes_ai,
+                        ingestion_service,
                         "fetch_xhs_note",
                         return_value={
                             "url": "https://www.xiaohongshu.com/explore/video-id",
@@ -373,24 +385,24 @@ class XHSImportTests(unittest.TestCase):
                 )
                 stack.enter_context(
                     patch.dict(
-                        voice_notes_ai.os.environ,
+                        ingestion_service.os.environ,
                         {"VOICE_NOTES_AUTO_XHS_IMPORTS": "1"},
                     )
                 )
                 stack.enter_context(
-                    patch.object(voice_notes_ai, "download_xhs_video", side_effect=fake_download)
+                    patch.object(ingestion_service, "download_xhs_video", side_effect=fake_download)
                 )
                 stack.enter_context(
-                    patch.object(voice_notes_ai, "build_video_content_package", side_effect=fake_build)
+                    patch.object(ingestion_service, "build_video_content_package", side_effect=fake_build)
                 )
                 stack.enter_context(
-                    patch.object(voice_notes_ai, "require_api_key", return_value="test-key")
+                    patch.object(ingestion_service, "require_api_key", return_value="test-key")
                 )
                 stack.enter_context(
-                    patch.object(voice_notes_ai, "summarize_capture", return_value=structured)
+                    patch.object(ingestion_service, "summarize_capture", return_value=structured)
                 )
-                stack.enter_context(patch.object(voice_notes_ai, "send_notification"))
-                ok = voice_notes_ai.process_source_safely(share)
+                stack.enter_context(patch.object(ingestion_service, "send_notification"))
+                ok = ingestion_service.process_source_safely(share)
 
             archived_bundles = list((paths["PROCESSED_DIR"] / "xhs").glob("xhs-video-*"))
             share_exists = share.exists()
@@ -433,23 +445,22 @@ class XHSImportTests(unittest.TestCase):
                 "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
             with ExitStack() as stack:
-                for name, value in paths.items():
-                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                patch_paths(stack, paths)
                 stack.enter_context(
                     patch.dict(
-                        voice_notes_ai.os.environ,
+                        ingestion_service.os.environ,
                         {"VOICE_NOTES_AUTO_XHS_IMPORTS": ""},
                     )
                 )
                 stack.enter_context(
                     patch.object(
-                        voice_notes_ai,
+                        ingestion_service,
                         "fetch_xhs_note",
                         side_effect=AssertionError("should not fetch XHS"),
                     )
                 )
-                stack.enter_context(patch.object(voice_notes_ai, "send_notification"))
-                ok = voice_notes_ai.process_source_safely(share)
+                stack.enter_context(patch.object(ingestion_service, "send_notification"))
+                ok = ingestion_service.process_source_safely(share)
 
             deferred = root / "deferred" / "xhs" / share.name
             self.assertTrue(ok)
@@ -482,22 +493,21 @@ class XHSImportTests(unittest.TestCase):
                 "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
             with ExitStack() as stack:
-                for name, value in paths.items():
-                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                patch_paths(stack, paths)
                 stack.enter_context(
                     patch.dict(
-                        voice_notes_ai.os.environ,
+                        ingestion_service.os.environ,
                         {"VOICE_NOTES_AUTO_XHS_IMPORTS": ""},
                     )
                 )
                 stack.enter_context(
                     patch.object(
-                        voice_notes_ai,
+                        ingestion_service,
                         "fetch_xhs_note",
                         side_effect=AssertionError("should not fetch XHS"),
                     )
                 )
-                processed = voice_notes_ai.process_deferred_xhs(limit=1)
+                processed = ingestion_service.process_deferred_xhs(limit=1)
 
             self.assertEqual(processed, 0)
             self.assertTrue(share.exists())
@@ -510,11 +520,10 @@ class XHSImportTests(unittest.TestCase):
                 "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
             with ExitStack() as stack:
-                for name, value in paths.items():
-                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                patch_paths(stack, paths)
                 stack.enter_context(
                     patch.dict(
-                        voice_notes_ai.os.environ,
+                        ingestion_service.os.environ,
                         {
                             "VOICE_NOTES_AUTO_XHS_IMPORTS": "1",
                             "VOICE_NOTES_XHS_AUTO_MAX_PER_DAY": "not-a-number",
@@ -522,7 +531,7 @@ class XHSImportTests(unittest.TestCase):
                         },
                     )
                 )
-                allowed, reason = voice_notes_ai.xhs_auto_import_check()
+                allowed, reason = ingestion_service.xhs_auto_import_check()
 
             self.assertTrue(allowed)
             self.assertEqual(reason, "Automatic XHS import allowed.")
@@ -567,11 +576,10 @@ class XHSImportTests(unittest.TestCase):
                 "XHS_AUTO_STATE_FILE": root / "state" / "xhs-auto-imports.json",
             }
             with ExitStack() as stack:
-                for name, value in paths.items():
-                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                patch_paths(stack, paths)
                 stack.enter_context(
                     patch.dict(
-                        voice_notes_ai.os.environ,
+                        ingestion_service.os.environ,
                         {
                             "VOICE_NOTES_AUTO_XHS_IMPORTS": "1",
                             "VOICE_NOTES_XHS_AUTO_MAX_PER_DAY": "1",
@@ -581,7 +589,7 @@ class XHSImportTests(unittest.TestCase):
                 )
                 fetch = stack.enter_context(
                     patch.object(
-                        voice_notes_ai,
+                        ingestion_service,
                         "fetch_xhs_note",
                         return_value={
                             "url": "https://www.xiaohongshu.com/explore/note-id",
@@ -593,13 +601,13 @@ class XHSImportTests(unittest.TestCase):
                     )
                 )
                 stack.enter_context(
-                    patch.object(voice_notes_ai, "require_api_key", return_value="test-key")
+                    patch.object(ingestion_service, "require_api_key", return_value="test-key")
                 )
                 stack.enter_context(
-                    patch.object(voice_notes_ai, "summarize_capture", return_value=structured)
+                    patch.object(ingestion_service, "summarize_capture", return_value=structured)
                 )
-                stack.enter_context(patch.object(voice_notes_ai, "send_notification"))
-                processed = voice_notes_ai.process_deferred_xhs(limit=2)
+                stack.enter_context(patch.object(ingestion_service, "send_notification"))
+                processed = ingestion_service.process_deferred_xhs(limit=2)
 
             self.assertEqual(processed, 1)
             self.assertEqual(fetch.call_count, 1)
@@ -663,27 +671,26 @@ class XHSImportTests(unittest.TestCase):
                 return package
 
             with ExitStack() as stack:
-                for name, value in paths.items():
-                    stack.enter_context(patch.object(voice_notes_ai, name, value))
+                patch_paths(stack, paths)
                 stack.enter_context(
-                    patch.object(voice_notes_ai, "require_api_key", return_value="key")
+                    patch.object(ingestion_service, "require_api_key", return_value="key")
                 )
                 stack.enter_context(
                     patch.object(
-                        voice_notes_ai,
+                        ingestion_service,
                         "build_video_content_package",
                         side_effect=fake_build,
                     )
                 )
                 stack.enter_context(
                     patch.object(
-                        voice_notes_ai,
+                        ingestion_service,
                         "summarize_capture",
                         return_value=structured,
                     )
                 )
-                stack.enter_context(patch.object(voice_notes_ai, "send_notification"))
-                note_path = voice_notes_ai.ingest_xhs_video(
+                stack.enter_context(patch.object(ingestion_service, "send_notification"))
+                note_path = ingestion_service.ingest_xhs_video(
                     {
                         "url": "https://xhslink.com/video",
                         "title": "发球教学",

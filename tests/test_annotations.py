@@ -10,7 +10,8 @@ from unittest.mock import patch
 SRC = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(SRC))
 
-import voice_notes_ai  # noqa: E402
+import openai_note_service  # noqa: E402
+import vault_service  # noqa: E402
 
 
 def sample_note(annotations: list[dict]) -> dict:
@@ -29,12 +30,12 @@ def sample_note(annotations: list[dict]) -> dict:
 
 class AnnotationTests(unittest.TestCase):
     def test_empty_annotations_omit_comment_section(self) -> None:
-        markdown = voice_notes_ai.note_markdown(sample_note([]))
+        markdown = vault_service.note_markdown(sample_note([]))
         self.assertNotIn("## AI Comments", markdown)
         self.assertNotIn("[!ai-comment]", markdown)
 
     def test_annotation_renders_as_review_style_callout(self) -> None:
-        markdown = voice_notes_ai.note_markdown(
+        markdown = vault_service.note_markdown(
             sample_note(
                 [
                     {
@@ -60,8 +61,8 @@ class AnnotationTests(unittest.TestCase):
                 ensure_ascii=False,
             )
         }
-        with patch.object(voice_notes_ai, "api_post_json", return_value=response) as post:
-            result = voice_notes_ai.summarize_transcript(
+        with patch.object(openai_note_service, "api_post_json", return_value=response) as post:
+            result = openai_note_service.summarize_transcript(
                 "Ordinary note with no knowledge gap.",
                 "2026-06-07",
                 "test-key",

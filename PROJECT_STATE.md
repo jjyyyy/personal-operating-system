@@ -10,14 +10,15 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 - Keep the repo lightweight and file-first.
 - Do not restart the unified ingestion platform direction; that decision is in
   `docs/proposals/2026-06-07-unified-inbox-reminders-xhs.md`.
-- Keep `src/voice_notes_ai.py` as the main CLI for now.
-- When a nearby change makes it natural, extract stable pieces from
-  `voice_notes_ai.py` into focused modules.
-- Good future module boundaries: note rendering/path helpers, snippets/reports,
-  catalog/lint, and CLI parsing.
+- Keep `src/voice_notes_ai.py` as the stable command entrypoint.
+- Put implementation in domain modules; do not grow the entrypoint back into
+  an all-in-one script.
 
 ## Recently Landed
 
+- `src/voice_notes_ai.py` is now a 15-line orchestration entrypoint. CLI
+  parsing, configuration, AI note generation, vault storage, integrations,
+  ingestion, and knowledge maintenance live in focused modules.
 - Implementation milestone committed: lightweight XHS/share/video ingestion,
   snippets, scoped search, `delete-note`, and updated docs/tests.
 - Voice/transcript ingest, inbox watching, discard, notifications, catalog,
@@ -86,7 +87,7 @@ For project intro, commands, and agent rules, read `index.md`, `AGENTS.md`, and
 
 ## Current Risks
 
-- `python3 -m unittest discover -s tests` passed 69 tests on 2026-06-11.
+- `python3 -m unittest discover -s tests` passed 71 tests on 2026-06-11.
 - Latest lint flagged seed topic notes without source links:
   `topics/ai-development.md`, `topics/career.md`, `topics/health.md`,
   `topics/ideas.md`, and `topics/system-design.md`.

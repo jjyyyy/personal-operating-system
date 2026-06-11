@@ -80,6 +80,22 @@ It prints:
 ```
 
 Python projects can import `transcribe` from `src/transcription_service.py`.
+
+## Code Layout
+
+- `voice_notes_ai.py`: orchestration entrypoint only.
+- `voice_notes_cli.py`: CLI parser and command dispatch.
+- `voice_notes_config.py`: environment and vault path configuration.
+- `openai_note_service.py`: OpenAI request, schema, and note-generation prompt.
+- `vault_service.py`: Markdown rendering, index/catalog storage, corrections,
+  deletion, logging, and notifications.
+- `ingestion_service.py`: inbox discovery, voice/XHS ingest, source archival,
+  and deferred processing.
+- `integration_service.py`: routing, Google Maps tasks, and calendar outboxes.
+- `knowledge_service.py`: snippets, search, lint, topics, and capture manifests.
+
+Tests import the owning service directly. New implementation should not be
+added to `voice_notes_ai.py`.
 Provider order is:
 
 1. `VOICE_NOTES_LOCAL_TRANSCRIBE_COMMAND`, when configured;

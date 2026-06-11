@@ -1,5 +1,15 @@
 # Decisions
 
+## 2026-06-11: Keep The CLI Entrypoint Thin
+
+`src/voice_notes_ai.py` only loads configuration, parses arguments, and
+dispatches a command. Configuration, OpenAI note generation, vault storage,
+integrations, ingestion, and knowledge maintenance live in domain modules.
+
+Preserve `voice_notes_ai.py` as the stable executable path, but test and extend
+the owning service directly. Do not restore implementation helpers, prompt
+templates, schemas, storage code, or business rules to the entrypoint.
+
 ## 2026-06-10: Separate Production And Development Worktrees
 
 Keep `/Users/jazzzz/Projects/voice-notes` checked out on `main`. Cron, OpenClaw,
