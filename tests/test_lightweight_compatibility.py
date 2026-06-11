@@ -25,6 +25,20 @@ from google_calendar_provider import (  # noqa: E402
 
 
 class LightweightCompatibilityTests(unittest.TestCase):
+    def test_normalize_note_title_removes_repeated_date_prefix(self):
+        self.assertEqual(
+            voice_notes_ai.normalize_note_title("2026-06-11 网球课技术总结", "2026-06-11"),
+            "网球课技术总结",
+        )
+        self.assertEqual(
+            voice_notes_ai.normalize_note_title("2026-06-11：网球课技术总结", "2026-06-11"),
+            "网球课技术总结",
+        )
+        self.assertEqual(
+            voice_notes_ai.normalize_note_title("网球课技术总结", "2026-06-11"),
+            "网球课技术总结",
+        )
+
     @contextmanager
     def patch_vault_paths(self, root: Path):
         patches = [

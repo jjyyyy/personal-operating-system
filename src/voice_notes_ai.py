@@ -344,11 +344,12 @@ def summarize_capture(
         Rules:
         - date must stay "{note_date}"
         - source must be "{source_type}"
-        - title should be short and concrete
+        - title should be short and concrete, without a date prefix
         - topics should be a JSON array of 1-5 short strings
         - summary should be 2-5 bullet-worthy sentences combined into one paragraph
         - action_items should be a JSON array
-        - people should be a JSON array
+        - people should be a JSON array containing only people or roles
+          explicitly mentioned in the transcript; never infer a person
         - annotations should be a JSON array with 0-3 items
         - extracted_items should be a JSON array of independent generic items
           from the transcript. Return [] if there are no distinct items worth
@@ -529,12 +530,20 @@ def summarize_capture(
                 continue
             raise SystemExit(f"Summary response missing key: {key}")
 
+    data["title"] = normalize_note_title(data["title"], note_date)
     data["extracted_items"] = normalize_extracted_items(data.get("extracted_items", []))
     return data
 
 
 def summarize_transcript(transcript: str, note_date: str, api_key: str) -> dict:
     return summarize_capture(transcript, note_date, "voice", api_key)
+
+
+def normalize_note_title(title: str, note_date: str) -> str:
+    normalized = title.strip()
+    date_prefix = re.compile(rf"^{re.escape(note_date)}(?:\s*[-–—:：]\s*|\s+)")
+    normalized = date_prefix.sub("", normalized, count=1).strip()
+    return normalized or title.strip()
 
 
 def quote_callout_text(value: str) -> str:
